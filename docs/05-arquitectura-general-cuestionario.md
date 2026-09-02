@@ -47,107 +47,144 @@
 - El usuario confirma la decisión final con opción de aceptar la versión más reciente o conservar la alternativa como copia/renombrado.
 - El sistema no sobrescribe silenciosamente; el cliente y el servidor solo ejecutan la decisión confirmada.
 
-### 2.9. ¿Qué tipo de decisiones quedan definidas como “regla por defecto” y cuáles deben ser decisiones manuales del usuario?
-- Confirmación antes de sobrescribir.
-- Confirmación antes de conservar ambas versiones.
-- Decisión de renombrar, mover o “mantener ambas”.
+### 2.9. ¿Qué tipo de decisiones quedan definidas como “regla por defecto” y cuáles deben ser decisiones manuales del usuario? [RESPONDIDA]
+- Regla por defecto: la versión más reciente gana, siempre que el cambio sea inequívoco.
+- Decisión manual del usuario: conservar la alternativa como copia en conflicto, renombrarla para revisión, mantener ambas versiones o aceptar la versión más reciente.
+- La sobrescritura silenciosa queda prohibida en v1.
 
-### 2.10. ¿Qué pasa con la seguridad en v1 y en v2?
-- ¿Los metadatos del servidor pueden estar visibles en v1?
-- ¿Qué datos se consideran operativos y cuáles serán cifrados en v2?
-- ¿Cuál es la separación exacta entre `display_name`, `full_path` y metadatos operativos?
+### 2.10. ¿Qué pasa con la seguridad en v1 y en v2? [RESPONDIDA]
+- **v1:** los metadatos operativos del servidor **son visibles** (`checksum`, `modified_at`, `path_hash`, `device_id`, `last_sync`, estado de sincronización). La encriptación E2E no es obligatoria en v1.
+- **v2:** todos los datos serán cifrados E2E; el servidor no podrá leer metadatos sensibles.
+- **Separación exacta:**
+  - `display_name`: nombre legible del archivo (candidato a cifrado en v2).
+  - `full_path`: ruta completa del archivo (candidato a cifrado en v2).
+  - **Metadatos operativos** (visibles en v1): `checksum`, `modified_at`, `path_hash`, `device_id`, `last_sync`, estado final de sincronización, tamaño.
+- **Regla:** desde v1 se separan los campos operacionales de los campos candidatos a cifrado para evitar reescritura de base de datos en v2.
 
 ## Sección 3 — Componentes principales
 
-### 3.1. ¿Cuál es la topología exacta de v1?
-- Un solo proceso backend / monolito modular.
-- Una base SQLite.
-- Un storage local.
-- ¿Hay más de una instancia o no?
+### 3.1. ¿Cuál es la topología exacta de v1? [RESPONDIDA]
+- **Topología exacta:** un único backend monolítico, operado en un único nodo (single-node), con SQLite como base de metadatos y almacenamiento local mediante `LocalDiskStorageProvider`.
+- **No hay clúster ni multi-instancia activa** en v1; la tolerancia a fallos se resuelve con backups, cola persistente y recuperación manual asistida.
+- La arquitectura es monolítica modular, no un sistema distribuido.
 
-### 3.2. ¿Qué módulos internos deben existir con responsabilidad clara?
-- Identity
-- Sync Orchestrator
-- Metadata Catalog
-- Conflict Resolution
-- Storage Gateway
-- Background Jobs
-- Audit
-- Versioning
-- ¿Cuáles están activos en v1 y cuáles son stubs?
+### 3.2. ¿Qué módulos internos deben existir con responsabilidad clara? [RESPONDIDA]
+- `Identity`
+- `Sync Orchestrator`
+- `Metadata Catalog`
+- `Conflict Resolution`
+- `Storage Gateway`
+- `Background Jobs`
+- `Audit`
+- `Versioning` (stub o interfaz, no funcional en v1)
+- **Activos en v1:** Identity, Sync Orchestrator, Metadata Catalog, Conflict Resolution, Storage Gateway, Background Jobs, Audit.
+- **Stub en v1:** Versioning; queda preparado para uso posterior.
 
-### 3.3. ¿Qué capa de almacenamiento es la real en v1?
-- `LocalDiskStorageProvider` como implementación concreta.
-- ¿Dónde se guardan los archivos?
-- ¿Dónde se guardan los conflictos?
-- ¿Qué estructura de carpetas usa por usuario/dispositivo?
+### 3.3. ¿Qué capa de almacenamiento es la real en v1? [RESPONDIDA]
+- `LocalDiskStorageProvider` es la implementación concreta de v1.
+- **Layout sugerido:**
+  - `/data/users/{user_id}/files/...` para archivos de usuario.
+  - `/data/users/{user_id}/conflicts/...` para copias/renombrados por conflicto.
+  - `/data/users/{user_id}/staging/...` para operaciones en preparación o temporales (si aplica).
+- La capa usa `StorageProvider` como abstracción para permitir NAS en v2 sin cambiar el núcleo del sistema.
 
-### 3.4. ¿Qué layout de metadatos debe existir en SQLite?
-- ¿Tabla `files`?
-- ¿Tabla `sync_queue`?
-- ¿Tabla `conflicts`?
-- ¿Tabla `sessions`?
-- ¿Tabla `audit_log`?
-- ¿Qué columnas mínimas son obligatorias?
+### 3.4. ¿Qué layout de metadatos debe existir en SQLite? [RESPONDIDA]
+- **Tablas mínimas sugeridas:**
+  - `users`
+  - `devices`
+  - `sessions`
+  - `files`
+  - `sync_queue`
+  - `conflicts`
+  - `audit_log`
+- **Columnas mínimas recomendadas en `files`:**
+  - `file_id`, `user_id`, `device_id`, `path_hash`, `relative_path`, `checksum`, `size_bytes`, `modified_at`, `synced_at`, `status`, `last_seen_version`, `deleted_at`.
+- **Columnas mínimas recomendadas en `sync_queue`:**
+  - `queue_id`, `file_id`, `operation`, `status`, `attempts`, `last_error`, `created_at`, `updated_at`, `idempotency_key`.
+- **En `conflicts`:**
+  - `conflict_id`, `file_id`, `local_path`, `remote_path`, `strategy`, `created_at`, `resolved_at`, `resolved_by`.
 
-### 3.5. ¿Qué define un archivo “sincronizado” vs “pendiente” vs “con conflicto”?
-- ¿Se basa en un único campo de estado?
-- ¿O hay una combinación de `checksum`, `modified_at`, `synced_at`, `device_id` y `status`?
+### 3.5. ¿Qué define un archivo “sincronizado” vs “pendiente” vs “con conflicto”? [RESPONDIDA]
+- **Sincronizado:** el archivo tiene un `checksum` aceptado, `modified_at` coherente con el servidor y el estado de sincronización actual es `synced`.
+- **Pendiente:** existe una operación en `sync_queue` no resuelta o el archivo tiene cambios pendientes en cliente/servidor.
+- **Con conflicto:** hubo cambio concurrente desde `last_sync` y el contenido final difiere; el sistema marca el caso como `conflict` y exige decisión del usuario o resolución explícita.
+- La definición se hace con combinación de `checksum`, `modified_at`, `device_id`, `path_hash`, `status` y `last_sync`.
 
-### 3.6. ¿Qué contrato de API debe existir en v1?
-- ¿Cuáles son los endpoints y métodos?
-- ¿Qué payload envía el cliente?
-- ¿Qué respuesta devuelve el servidor en upload, download, delete, rename, move, copy?
-- ¿Qué estructura llevan los errores?
+### 3.6. ¿Qué contrato de API debe existir en v1? [RESPONDIDA]
+- **Base REST/JSON sobre TLS 1.3** con prefix `/v1`.
+- **Endpoints sugeridos:**
+  - `POST /v1/auth/login`
+  - `POST /v1/auth/logout`
+  - `GET /v1/sync/diff`
+  - `POST /v1/sync/upload`
+  - `POST /v1/sync/download`
+  - `POST /v1/sync/delete`
+  - `POST /v1/sync/rename`
+  - `POST /v1/sync/move`
+  - `POST /v1/sync/copy`
+  - `GET /v1/conflicts`
+  - `POST /v1/conflicts/resolve`
+- **Payload mínimo recomendados:**
+  - `user_id`, `device_id`, `session_id`, `idempotency_key`, `path_hash`, `relative_path`, `checksum`, `size_bytes`, `modified_at`, `operation`, `source_device`.
+- **Error estándar:** `code`, `message`, `retryable`, `details`, `request_id`.
 
-### 3.7. ¿Qué debe incluir el `idempotency_key`?
-- ¿Se genera por operación o por archivo?
-- ¿Cuánto dura la deduplicación?
-- ¿Qué pasa si el mismo archivo se intenta dos veces con misma clave y un contenido distinto?
+### 3.7. ¿Qué debe incluir el `idempotency_key`? [RESPONDIDA]
+- Se genera **por operación**, no por archivo.
+- La deduplicación dura **24 horas** en servidor.
+- Si la misma clave se reutiliza con contenido distinto, se rechaza con `409 Conflict` o `422 Unprocessable Entity` para evitar corrupción.
+- El cliente reintenta con la misma clave; el servidor debe devolver el mismo resultado sin duplicar efectos.
 
-### 3.8. ¿Cuál es la política de polling exacta en v1?
-- ¿Frecuencia fija de 30s?
-- ¿Puede adaptarse por carga?
-- ¿El cliente solicita deltas por usuario/dispositivo o por archivo?
+### 3.8. ¿Cuál es la política de polling exacta en v1? [RESPONDIDA]
+- **Frecuencia base:** 30 segundos.
+- **Adaptación opcional:** 15–60 segundos según carga, latencia o estado de cola.
+- El cliente solicita **deltas por usuario y dispositivo**, no por archivo individual como fuente primaria del polling.
+- El polling es la base de v1; WebSocket no es obligatorio.
 
-### 3.9. ¿Qué hace el cliente en segundo plano?
-- ¿Reintenta automáticamente?
-- ¿Drena a cola persistente?
-- ¿Qué se almacena localmente para recuperación tras cierre?
+### 3.9. ¿Qué hace el cliente en segundo plano? [RESPONDIDA]
+- Guarda cada cambio en cola persistente antes de enviarlo.
+- Reintenta automáticamente con backoff exponencial + jitter.
+- Mantiene una base local de metadata + cola para recuperar tras cierre o reinicio.
+- Si el cliente cae, al arrancar reanuda la cola con validación del servidor y deduplicación por `idempotency_key`.
 
-### 3.10. ¿Qué es exactamente un “conflicto” desde la vista del cliente y del servidor?
-- Diferencias de `modified_at`.
-- Diferencias de `checksum`.
-- Ruta distinta pero mismo archivo.
-- Archivo borrado en un dispositivo y contenido actualizado en otro.
+### 3.10. ¿Qué es exactamente un “conflicto” desde la vista del cliente y del servidor? [RESPONDIDA]
+- **Conflicto real:** ambos lados modificaron el mismo archivo desde la última sincronización y el contenido final difiere por hash.
+- **No es conflicto:** solo un lado cambió, o el contenido es idéntico y la diferencia es solo la ruta/renombrado.
+- **Delete vs modify:** si hay `delete` en un lado y `modify` en otro, el borrado puede ser canónico por defecto, pero el usuario puede decidir conservar la versión alternativa como copia de conflicto.
 
-### 3.11. ¿Qué debemos mostrar en la UI en cada estado?
-- “Sincronizado”, “Sincronizando”, “Con conflictos”, “Error”, “Pausado”.
-- ¿Qué datos se muestran por archivo y por dispositivo?
-- ¿Qué botón de acción tiene el usuario ante un conflicto?
+### 3.11. ¿Qué debemos mostrar en la UI en cada estado? [RESPONDIDA]
+- Estados mínimos: `Sincronizado`, `Sincronizando`, `Con conflictos`, `Error`, `Pausado`.
+- **Datos por archivo:** nombre, estado, tamaño, fecha de última sincronización, `checksum`, origen del último cambio, cantidad de cambios pendientes.
+- **Datos por dispositivo:** nombre del dispositivo, estado de conexión, último sync local/remote, número de operaciones pendientes.
+- **Botones de acción para conflicto:** `Aceptar más reciente`, `Guardar copia/renombrar`, `Mantener ambas versiones`, `Reintentar`.
 
-### 3.12. ¿Cuáles son los mensajes mínimos de auditoría y observabilidad en v1?
+### 3.12. ¿Cuáles son los mensajes mínimos de auditoría y observabilidad en v1? [RESPONDIDA]
 - `auth.login_success`
 - `auth.login_failed`
 - `sync.file_uploaded`
 - `sync.file_downloaded`
+- `sync.file_deleted`
+- `sync.file_renamed`
+- `sync.file_moved`
+- `sync.file_copied`
 - `sync.conflict_detected`
-- ¿Qué más hace falta? `sync.delete`, `sync.rename`, `sync.move`, `sync.copy`, `retry`, `quarantine`.
+- `sync.retry_scheduled`
+- `sync.quarantined`
+- `auth.session_expired`
+- La auditoría debe incluir `user_id`, `device_id`, `request_id`, `op_id`, `timestamp`, `result`, `message`.
 
-### 3.13. ¿Qué debe estar definido para cerrar la parte operativa de v1?
-- Política de reintentos.
-- Contraseña de backoff y jitter.
-- Umbrales de cola.
-- Qué hace el sistema cuando se supera un umbral.
-- Qué hace el usuario cuando se llega a un estado degradado.
+### 3.13. ¿Qué debe estar definido para cerrar la parte operativa de v1? [RESPONDIDA]
+- **Reintentos:** backoff exponencial + jitter, límite de 5 intentos por operación.
+- **Umbrales de cola:** si la cola supera X operaciones o el elemento más antiguo supera Y minutos, se marca el sistema como `degraded` y se informa al usuario.
+- **Modo degradado:** se sigue sincronizando con prioridad por tipo de operación, sin bloquear la app completa.
+- **Acción humana:** si la cola supera el umbral, el usuario puede pausar, reintentar o revisar conflictos.
 
-### 3.14. ¿Qué debe estar definido para cerrar la parte de v2?
-- NAS obligatorio.
-- PostgreSQL como persistencia.
-- Kafka para event streaming.
-- E2E.
-- Conflicto avanzado.
-- ¿WebSocket y gRPC son requisitos de v2 o solo opciones de transporte?
+### 3.14. ¿Qué debe estar definido para cerrar la parte de v2? [RESPONDIDA]
+- **NAS obligatorio:** sí, para v2.
+- **PostgreSQL:** sí, como persistencia principal de metadatos.
+- **Kafka:** sí, para desacoplamiento y event streaming de alto volumen.
+- **E2E:** sí, obligatorio en v2.
+- **Resolución de conflicto avanzada:** sí, merge asistido o policy más sofisticada.
+- **WebSocket/gRPC:** son opciones de transporte para fases posteriores, no requisitos obligatorios de v2 por defecto.
 
 ## Cierre recomendado
 

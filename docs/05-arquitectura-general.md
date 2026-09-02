@@ -50,7 +50,7 @@ Definir la arquitectura de alto nivel de SyncFiles para un **MVP** enfocado en a
 - **Consistencia estricta ante fallos parciales:** ante una operación incompleta (corte de red, error de escritura), el sistema prefiere rechazar y reintentar antes que dejar un estado inconsistente.
 - **Idempotencia universal en operaciones remotas:** toda operación de sync puede reejecutarse sin efectos duplicados. El servidor detecta y descarta reintentos de operaciones ya aplicadas.
 - **Archivo más nuevo como criterio base de convergencia:** en v1, el archivo con `modified_at` más reciente define la versión canónica por defecto, usando una tolerancia de ±2–5 segundos para compensar deriva temporal entre dispositivos. La decisión puede ser aplicada por el sistema solo cuando el cambio es inequívoco; si hay conflicto real, el flujo ofrece al usuario conservar la alternativa mediante **copia/renombrado** antes de confirmar la resolución, sin sobrescritura silenciosa.
-- **Regla operativa de conflicto en v1:** la resolución no se ejecuta automáticamente sin confirmación del usuario. El flujo debe ofrecer opciones como aceptar la versión más reciente, conservar la alternativa como copia en conflicto o renombrarla para revisión manual. El usuario es quien confirma la decisión final del conflicto.
+- **Regla operativa de conflicto en v1:** la resolución no se ejecuta automáticamente sin confirmación del usuario. La regla por defecto es aceptar la versión más reciente, pero el flujo debe ofrecer opciones explícitas para conservar la alternativa como copia en conflicto, renombrarla para revisión manual o mantener ambas versiones. El usuario es quien confirma la decisión final del conflicto.
 - **Evolución incremental sin reescritura:** las abstracciones clave (`StorageProvider`, `TransportAdapter`, `ConflictResolutionPolicy`, `IdentityProvider`) se definen desde v1 aunque solo tengan una implementación concreta.
 - **Portabilidad:** comportamiento consistente entre desktop (Windows/macOS/Linux) y Android.
 
@@ -80,7 +80,7 @@ Los siguientes controles son **obligatorios desde v1**:
 - **Control básico de acceso:** un usuario solo opera sobre sus propios archivos.
 - **Integridad por checksum** en toda operación de subida/bajada.
 
-El cifrado E2E **no es obligatorio en v1**, pero el esquema de metadatos separa desde el inicio los campos operacionales (visibles en servidor) de los campos candidatos a cifrado posterior (`display_name`, `full_path`). Esta separación evita una reescritura de base de datos en v2.
+El cifrado E2E **no es obligatorio en v1**. En esta fase, el servidor puede ver metadatos operativos necesarios para la sincronización (hash de ruta, `modified_at`, `checksum`, `device_id`, estado de sincronización), pero no es responsable de cifrar el contenido ni los nombres visibles del archivo en reposo. En v2, los contenidos y los campos sensibles visibles al usuario (`display_name`, `full_path`) deben quedar protegidos con E2E para que el servidor no pueda leerlos.
 
 > Los metadatos pueden estar expuestos en v1. A partir de v2 esta condición no es aceptable.
 
@@ -129,7 +129,7 @@ Ningún módulo del dominio de sync llama directamente a implementaciones concre
 
 ### 3.1 Vista general y límites del MVP
 - La arquitectura del MVP se organiza en componentes cliente/servidor con responsabilidades explícitas.
-- Alcance funcional de componentes en v1: autenticación, sincronización básica y resolución de conflictos por **copia en conflicto**.
+- Alcance funcional de componentes en v1: autenticación, sincronización básica y resolución de conflictos con regla por defecto de **archivo más nuevo gana**, conservando alternativamente copias/renombrados para revisión manual.
 - Quedan fuera del núcleo v1: versionado completo, compartición de archivos y modo offline obligatorio.
 - La arquitectura se diseña para evolución incremental sin reescritura.
 
@@ -138,7 +138,7 @@ Ningún módulo del dominio de sync llama directamente a implementaciones concre
 - Estructura interna del cliente:
   - **Núcleo modular + adaptadores** (sistema de archivos, red, persistencia local).
   - Motor de sincronización bidireccional.
-  - Manejador de conflictos (regla universal: copia en conflicto).
+  - Manejador de conflictos con regla por defecto de `modified_at` más reciente y opción de conservar copia/renombrado.
   - Módulo de sesión/autenticación para cuentas precreadas.
 - El cliente mantiene **metadatos locales mínimos** para continuidad de sincronización y reintentos.
 
@@ -162,7 +162,8 @@ Ningún módulo del dominio de sync llama directamente a implementaciones concre
 - Identificación de ruta por `path_hash` de **ruta relativa normalizada** usando **SHA-256**.
 - Modelo híbrido para estado de sincronización:
   - registro canónico por archivo,
-  - estado mínimo por `device_id` para control de convergencia y trazabilidad.
+  - estado mínimo por `device_id` para control de convergencia y trazabilidad,
+  - registro de conflictos y cola persistente con `idempotency_key`.
 - El servidor mantiene la fuente de verdad de metadatos; el cliente conserva copia mínima operativa.
 
 ### 3.5 Almacenamiento de archivos
