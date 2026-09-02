@@ -119,11 +119,9 @@ Ningún módulo del dominio de sync llama directamente a implementaciones concre
 | `ConflictResolutionPolicy` | `LastWriteWinsWithConflictCopy` | `ThreeWayMerge`, merge asistido |
 | `IdentityProvider` | Usuario/contraseña + token de sesión | OAuth2/OIDC, biometría Android |
 
-**Señales que disparan el paso a Fase 2:**
+**Activación de Fase 2:**
 
-1. **E2E activo:** el usuario almacena contenido sensible y pregunta si está cifrado en el servidor.
-2. **Versionado activo:** ocurre el primer conflicto que una copia de conflicto no resuelve y se necesita restaurar una versión anterior.
-3. **NAS + escala activos:** `LocalDiskStorageProvider` supera el 75% de capacidad, o se incorpora un tercer dispositivo activo.
+La evolución a Fase 2 no depende de umbrales analíticos ni de señales operativas puntuales. La regla de cierre es simple: **V2 se activa cuando la versión V1 queda implementada, validada y aceptada como software completo en producción**. A partir de ese punto, se incorporan las capacidades adicionales: NAS, PostgreSQL, Kafka, E2E y resolución avanzada de conflictos.
 
 ## 3. Componentes Principales
 
@@ -528,11 +526,11 @@ Adicionalmente, las alertas de seguridad mínimas de §5.8 se mantienen obligato
 
 ## 8. Decisiones Gobernadas y Evolución Post-MVP
 
-### 8.1 Introducción: Señales Definidas, Decisiones Estructuradas
+### 8.1 Introducción: Transición Natural de V1 a V2
 
-La Sección 8 documenta las **decisiones gobernadas que rigen la evolución del sistema post-MVP**, basadas en **señales operativas reales** derivadas de secciones 1–7. Esta gobernanza **no es el diseño final de Fase 2**, sino el **mecanismo de transición controlada** desde v1 hacia mejoras incrementales.
+La Sección 8 documenta la **evolución planificada del sistema post-MVP**. La regla de gobierno es simple: **V2 se activa cuando V1 queda implementada por completo, validada y aceptada como producto funcional estable**. Esta gobernanza **no es el diseño final de Fase 2**, sino el **plan de evolución controlada** desde la base operativa de v1 hacia una arquitectura mejor preparada para crecimiento, privacidad y soporte escalado.
 
-Ninguna de estas decisiones es especulativa: cada una se vincula a una señal observable del sistema que, cuando se manifieste, **activa automáticamente el análisis y la decisión correlativa**. El objetivo es **evitar arquitectura prematura**, permitir aprendizaje empírico en v1 y validar hipótesis con datos reales antes de comprometerse con cambios estructurales.
+Las decisiones de esta sección no dependen de métricas de urgencia ni de umbrales analíticos. Se asumen como un **despliegue natural y ordenado** una vez que la primera versión ya está entregada y estabilizada. El objetivo es evitar rediseños prematuros, pero sin convertir la transición en un proceso reactivo impulsado por eventos operativos aislados.
 
 **Alcance de esta sección:**
 - Decisiones cerradas para MVP (confirmadas en Sección 2) que impactan la evolución.
@@ -555,7 +553,7 @@ Ninguna de estas decisiones es especulativa: cada una se vincula a una señal ob
 
 **Justificación:** Implementación de E2E introduce complejidad no lineal: cambios en generación de claves, reencriptación de transporte, gestión de identidad de clientes, revocación segura y manejo de recuperación ante pérdida de claves. Todo esto es validable únicamente tras operación estable de v1 sin cifrado.
 
-**Señal de disparo:** Usuario accede al servidor y pregunta explícitamente si sus archivos están cifrados en reposo. Esta conversación indica madurez operacional y demanda creciente de privacidad.
+**Hito de activación:** una vez que V1 queda implementada y validada como software completo, se procede a definir el diseño E2E y la política de privacidad reforzada en V2.
 
 **Alcance de diseño E2E (a realizar post-MVP):**
 - Separación de campos operacionales (hash de ruta, timestamps, checksums) de campos cifrados (display_name, contenido).
@@ -667,7 +665,7 @@ Ninguna de estas decisiones es especulativa: cada una se vincula a una señal ob
 
 **Decisión confirmada:** v1 usa `LocalDiskStorageProvider` (disco local). La evolución a `NasStorageProvider` ocurre post-MVP por señales de capacidad y uso compartido.
 
-**Regla clave:** el trigger de NAS está **desacoplado** de la política de backup.
+**Regla clave:** la introducción de NAS está **desacoplada** de la política de backup, pero ambas forman parte de la evolución natural de V2 tras la entrega de V1.
 
 **Abstracción mantenida:** interfaces `StorageProvider` no cambian; el nuevo proveedor se incorpora sin romper contratos del núcleo de sincronización.
 
@@ -722,7 +720,7 @@ Ninguna de estas decisiones es especulativa: cada una se vincula a una señal ob
 
 **Decisión confirmada:** **Versionado queda fuera de v1**. Se activa únicamente cuando usuario genera conflicto que copia de conflicto no resuelve.
 
-**Señal de disparo:** Evento registrado en auditoría: usuario ha intentado restaurar versión anterior, o conflicto de 3+ partes simultáneamente no se resolvió con copia de conflicto.
+**Hito de activación:** cuando V1 queda cerrada y la base funcional ha sido entregada, se inicia el diseño de versionado formal y de políticas de recuperación más avanzadas en V2.
 
 **Alcance de versionado en Fase 2:**
 - **Coexistencia:** copias de conflicto v1 se mantienen como primer mecanismo; versionado formal es segunda línea.
@@ -740,7 +738,7 @@ Ninguna de estas decisiones es especulativa: cada una se vincula a una señal ob
 
 **Decisión confirmada:** **Compartición queda fuera de v1**. Se activa cuando múltiples usuarios solicitan explícitamente capacidad de compartir.
 
-**Señal de disparo:** 3+ usuarios en período de 2 semanas pregunta por "compartir archivo con otro usuario" o "directorio compartido".
+**Hito de activación:** cuando la base de V1 y la experiencia de uso han quedado estabilizadas, se planifica la funcionalidad de compartición y permisos en V2.
 
 **Alcance de compartición en Fase 2:**
 - **Modelo:** compartición granular por archivo o directorio; permisos explícitos (lectura, escritura, lectura+escritura).
@@ -778,7 +776,7 @@ Ninguna de estas decisiones es especulativa: cada una se vincula a una señal ob
 - Desventaja: cambio de cliente (biblioteca gRPC), cambio de servidor (stack gRPC).
 - Compatibilidad: REST sigue disponible para clientes legacy o mode offline.
 
-**Propietario:** Ingeniero de Frontend + Backend. **Revisor:** CTO. **Evaluación:** Fase 2 (WebSocket si trigger) o Fase 3 (gRPC si trigger).
+**Propietario:** Ingeniero de Frontend + Backend. **Revisor:** CTO. **Evaluación:** Fase 2 si la evolución de transporte se incorpora tras la estabilización de V1; Fase 3 si se requiere una elección más especializada.
 
 ---
 
@@ -786,7 +784,7 @@ Ninguna de estas decisiones es especulativa: cada una se vincula a una señal ob
 
 **Decisión confirmada:** **Offline no es obligatorio en MVP**. Se activará en Fase 2 con alcance limitado si usuario solicita explícitamente acceso offline sostenido.
 
-**Señal de disparo:** Usuario intenta sincronizar con red inestable por 3+ sesiones en 1 semana, O usuario relata "trabajo offline" como caso de uso crítico.
+**Hito de activación:** cuando V1 ya está implementada y cerrada, se incorpora el trabajo offline y la resiliencia de conectividad como evolución natural de V2.
 
 **Alcance de offline en Fase 2:**
 - **Lectura:** usuario puede descargar archivos específicos para acceso offline; actualización manual o pre-carga configurada.
@@ -887,7 +885,7 @@ Cierre de MVP requiere validación por dominio:
 
 **Transición a Fase 2:**
 - Se habilita por Go/No-Go aprobado.
-- Cada decisión se activa por su trigger específico (sin acoplar NAS con backup).
+- Cada decisión se integra en la evolución natural de V2 tras la entrega y estabilización de V1, sin acoplar NAS con backup.
 
 ---
 
