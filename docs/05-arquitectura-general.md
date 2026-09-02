@@ -164,11 +164,150 @@ La evolución a Fase 2 no depende de umbrales analíticos ni de señales operati
   - registro de conflictos y cola persistente con `idempotency_key`.
 - El servidor mantiene la fuente de verdad de metadatos; el cliente conserva copia mínima operativa.
 
+#### 3.4.1 Esquema concreto de SQLite v1
+
+La base de datos local del cliente y la base operativa del servidor usan el mismo conjunto de entidades mínimas para facilitar migración posterior.
+
+```sql
+CREATE TABLE users (
+  user_id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  display_name TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE devices (
+  device_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  device_name TEXT,
+  last_seen_at INTEGER,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY(user_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE sessions (
+  session_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  issued_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  status TEXT NOT NULL CHECK(status IN ('active','expired','revoked')),
+  FOREIGN KEY(user_id) REFERENCES users(user_id),
+  FOREIGN KEY(device_id) REFERENCES devices(device_id)
+);
+
+CREATE TABLE files (
+  file_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  relative_path TEXT NOT NULL,
+  path_hash TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  modified_at INTEGER NOT NULL,
+  synced_at INTEGER,
+  status TEXT NOT NULL CHECK(status IN ('pending','synced','conflict','quarantined','deleted')),
+  last_sync_version INTEGER DEFAULT 0,
+  deleted_at INTEGER,
+  UNIQUE(user_id, path_hash),
+  FOREIGN KEY(user_id) REFERENCES users(user_id),
+  FOREIGN KEY(device_id) REFERENCES devices(device_id)
+);
+
+CREATE TABLE sync_queue (
+  queue_id TEXT PRIMARY KEY,
+  file_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  operation TEXT NOT NULL CHECK(operation IN ('upload','download','delete','rename','move','copy')),
+  status TEXT NOT NULL CHECK(status IN ('queued','in_flight','retry','done','failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  idempotency_key TEXT NOT NULL,
+  payload_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  last_error TEXT,
+  FOREIGN KEY(file_id) REFERENCES files(file_id),
+  FOREIGN KEY(user_id) REFERENCES users(user_id),
+  FOREIGN KEY(device_id) REFERENCES devices(device_id)
+);
+
+CREATE TABLE conflicts (
+  conflict_id TEXT PRIMARY KEY,
+  file_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  device_local TEXT,
+  device_remote TEXT,
+  local_checksum TEXT,
+  remote_checksum TEXT,
+  conflict_type TEXT NOT NULL,
+  strategy TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  resolved_at INTEGER,
+  resolved_by TEXT,
+  FOREIGN KEY(file_id) REFERENCES files(file_id),
+  FOREIGN KEY(user_id) REFERENCES users(user_id)
+);
+
+CREATE TABLE audit_log (
+  audit_id TEXT PRIMARY KEY,
+  user_id TEXT,
+  device_id TEXT,
+  event_name TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  payload_json TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_files_user_path ON files(user_id, path_hash);
+CREATE INDEX idx_sync_queue_user_status ON sync_queue(user_id, status, created_at);
+CREATE INDEX idx_conflicts_user_file ON conflicts(user_id, file_id);
+CREATE INDEX idx_audit_event_time ON audit_log(created_at, event_name);
+```
+
+Reglas operativas:
+- `path_hash` es la clave canónica para identificar la ruta relativa normalizada y evitar conflictos de nombre por separación de casos o normalización del sistema operativo.
+- `status` en `files` y `sync_queue` debe ser actualizado solo por el servidor para v1; el cliente usa el estado como vista derivada.
+- `idempotency_key` se usa para deduplicación de 24 horas.
+- `conflict_id` debe conservar al menos una copia de la alternativa y la decisión con timestamp de resolución.
+
 ### 3.5 Almacenamiento de archivos
 - La capa de almacenamiento se abstrae mediante `StorageProvider`.
 - Implementación inicial: `LocalDiskStorageProvider` (NAS no obligatorio en v1).
 - Layout de almacenamiento **híbrido**, equilibrando simplicidad de operación y evolución futura.
 - La abstracción permite migrar a NAS/post-MVP sin romper contratos del núcleo de sincronización.
+
+#### 3.5.1 Layout de almacenamiento local v1
+
+Se define una estructura estable por usuario y dispositivo para evitar ambigüedad y facilitar la restauración.
+
+```text
+/data/
+  syncfiles/
+    users/
+      {user_id}/
+        files/
+          {relative_path_normalized}
+        conflicts/
+          {file_id}/
+            {device_id}_{timestamp}_{original_name}
+        staging/
+          {queue_id}_{file_name}
+        backups/
+          {date}/
+            metadata.sqlite
+            snapshots/
+```
+
+Reglas obligatorias de v1:
+- Todo archivo validado se almacena bajo `files/{relative_path_normalized}`.
+- Toda alternativa de conflicto se almacena en `conflicts/{file_id}/...` con nombre legible y marca de tiempo.
+- Todo paso intermedio debe residir en `staging` y nunca reemplazar el archivo canónico antes de confirmar el commit.
+- La ruta normalizada no incluye el `display_name` en claro si se quiere evitar la exposición del servidor en v2; en v1 se acepta la ruta normalizada legible dentro del almacenamiento local.
 
 ### 3.6 Comunicación e interfaces entre componentes
 - Protocolo cliente-servidor en v1: **REST/JSON sobre HTTP/1.1 + TLS**.
@@ -176,6 +315,43 @@ La evolución a Fase 2 no depende de umbrales analíticos ni de señales operati
 - Detección de cambios remotos del cliente: **polling** (sin push en v1).
 - Todas las operaciones remotas se diseñan como idempotentes para reintentos seguros.
 - Kafka no se incluye en v1; se considera post-MVP bajo criterios de carga y desacoplamiento.
+
+#### 3.6.1 Contrato REST v1 mínimo
+
+Los endpoints deben ser explícitos y versionados. El cliente solo puede enviar operaciones que el servidor aceptará como idempotentes en una ventana de 24 horas.
+
+- `POST /v1/auth/login`
+  - Request: `{ "email": "user@example.com", "password": "***", "device_id": "android-1" }`
+  - Response: `{ "session_id": "sess_123", "expires_at": 1730000000000, "device_id": "android-1" }`
+
+- `GET /v1/sync/diff?since=1700000000000`
+  - Response: `{ "changes": [{ "file_id": "f_1", "operation": "upload", "path_hash": "...", "checksum": "...", "modified_at": 1700000000000, "device_id": "d_1" }], "server_seq": 42 }`
+
+- `POST /v1/sync/upload`
+  - Request: `{ "session_id": "sess_123", "device_id": "d_1", "file_id": "f_1", "relative_path": "docs/a.txt", "path_hash": "...", "checksum": "...", "size_bytes": 1024, "modified_at": 1700000000000, "idempotency_key": "op_abc_1", "content": "base64(...)" }`
+  - Response: `{ "accepted": true, "status": "synced", "server_seq": 43, "file_id": "f_1" }`
+
+- `POST /v1/sync/download`
+  - Request: `{ "session_id": "sess_123", "device_id": "d_1", "file_id": "f_1", "path_hash": "...", "idempotency_key": "op_abc_2" }`
+  - Response: `{ "accepted": true, "status": "ready", "checksum": "...", "content": "base64(...)" }`
+
+- `POST /v1/sync/delete`
+  - Request: `{ "session_id": "sess_123", "device_id": "d_1", "file_id": "f_1", "path_hash": "...", "idempotency_key": "op_abc_3" }`
+  - Response: `{ "accepted": true, "status": "deleted", "server_seq": 44 }`
+
+- `POST /v1/sync/rename`
+  - Request: `{ "session_id": "sess_123", "device_id": "d_1", "file_id": "f_1", "old_path": "docs/a.txt", "new_path": "docs/b.txt", "idempotency_key": "op_abc_4" }`
+  - Response: `{ "accepted": true, "status": "renamed", "server_seq": 45 }`
+
+- `POST /v1/conflicts/resolve`
+  - Request: `{ "session_id": "sess_123", "device_id": "d_1", "conflict_id": "c_10", "decision": "accept_latest", "preserve_alternative": true, "new_name": "a_conflict_20260101_155530.txt" }`
+  - Response: `{ "accepted": true, "status": "resolved", "resolved_by": "user", "conflict_id": "c_10" }`
+
+Reglas obligatorias de v1:
+- Toda respuesta de éxito debe incluir `accepted` y un `server_seq` válido.
+- Todo error debe devolverse con `{ "code": "...", "message": "...", "retryable": true|false, "request_id": "..." }`.
+- El servidor debe responder `409 Conflict` si la misma `idempotency_key` llega con contenido distinto.
+- El cliente no puede decidir la resolución final del conflicto; solo ejecuta la decisión ya confirmada por el usuario y validada por el servidor.
 
 ### 3.7 Ejecución en segundo plano y evolución
 - `Background Jobs` en modo mínimo interno para:
