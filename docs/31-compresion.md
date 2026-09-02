@@ -1,0 +1,4 @@
+# Compresión
+
+## Algoritmo: Zstandard (zstd)
+
