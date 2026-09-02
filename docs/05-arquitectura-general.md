@@ -45,12 +45,12 @@ Definir la arquitectura de alto nivel de SyncFiles para un **MVP** enfocado en a
 ### 2.1 Principios rectores
 
 - **Funcionalidad estable antes que optimización:** la prioridad en v1 es que el ciclo subir/sincronizar/bajar/modificar funcione de forma confiable. La optimización de rendimiento y escala se aborda en fases posteriores.
-- **Metadatos como fuente única de verdad:** el estado de sincronización de cualquier archivo se determina exclusivamente por los metadatos del servidor (`checksum`, `modified_at`, `device_id`). No existen fuentes secundarias de verdad en v1.
+- **Metadatos como fuente única de verdad:** el estado de sincronización de cualquier archivo se determina exclusivamente por los metadatos del servidor (`checksum`, `modified_at`, `device_id`). El cliente solo propone cambios; no reescribe ni valida autoridad de estado sin confirmación del servidor. No existen fuentes secundarias de verdad en v1.
 - **Mínimo privilegio:** separación estricta de permisos entre cliente, API y almacenamiento.
 - **Consistencia estricta ante fallos parciales:** ante una operación incompleta (corte de red, error de escritura), el sistema prefiere rechazar y reintentar antes que dejar un estado inconsistente.
 - **Idempotencia universal en operaciones remotas:** toda operación de sync puede reejecutarse sin efectos duplicados. El servidor detecta y descarta reintentos de operaciones ya aplicadas.
-- **Archivo más nuevo como criterio base de convergencia:** en v1, el archivo con `modified_at` más reciente define la versión canónica por defecto. Si hay conflicto real, el sistema permite al usuario conservar ambas versiones mediante **copia/renombrado** antes de confirmar la resolución, sin sobrescritura silenciosa.
-- **Regla operativa de conflicto en v1:** la resolución no se ejecuta automáticamente sin confirmación; el flujo debe ofrecer opciones como aceptar la versión más reciente, conservar la alternativa como copia en conflicto o renombrarla para revisión manual.
+- **Archivo más nuevo como criterio base de convergencia:** en v1, el archivo con `modified_at` más reciente define la versión canónica por defecto, usando una tolerancia de ±2–5 segundos para compensar deriva temporal entre dispositivos. La decisión puede ser aplicada por el sistema solo cuando el cambio es inequívoco; si hay conflicto real, el flujo ofrece al usuario conservar la alternativa mediante **copia/renombrado** antes de confirmar la resolución, sin sobrescritura silenciosa.
+- **Regla operativa de conflicto en v1:** la resolución no se ejecuta automáticamente sin confirmación del usuario. El flujo debe ofrecer opciones como aceptar la versión más reciente, conservar la alternativa como copia en conflicto o renombrarla para revisión manual. El usuario es quien confirma la decisión final del conflicto.
 - **Evolución incremental sin reescritura:** las abstracciones clave (`StorageProvider`, `TransportAdapter`, `ConflictResolutionPolicy`, `IdentityProvider`) se definen desde v1 aunque solo tengan una implementación concreta.
 - **Portabilidad:** comportamiento consistente entre desktop (Windows/macOS/Linux) y Android.
 
@@ -205,6 +205,7 @@ Ningún módulo del dominio de sync llama directamente a implementaciones concre
   - acción manual “Sincronizar ahora”.
 - El cliente aplica debounce por archivo (~1 segundo) para reducir ráfagas de eventos.
 - Cada cambio se transforma en una operación de sync y se persiste en cola local en disco antes de enviarse.
+- Cada item de la cola incluye `idempotency_key` y se registra con estado de `queued`/`in_flight`/`retry` para permitir reintentos seguros y evitar duplicados.
 - La cola persistente permite recuperación tras cierre inesperado o reinicio de la app/dispositivo.
 
 ### 4.3 Canal saliente (cliente → servidor): orden, atomicidad e idempotencia
@@ -222,11 +223,15 @@ Ningún módulo del dominio de sync llama directamente a implementaciones concre
 
 ### 4.5 Resolución de conflictos y convergencia
 - Condición principal de conflicto: ambos lados cambiaron desde `last_sync` y el contenido final difiere por hash.
-- Regla universal del MVP: generar **copia en conflicto**; no sobrescritura silenciosa.
+- Un cambio no conflictivo es aquel en el que solo un lado modificó el archivo, o la ruta cambió y el contenido final sigue siendo idéntico. En esos casos no se bloquea la sincronización ni se crea una copia de conflicto.
+- Regla de convergencia en v1: por defecto, el archivo con `modified_at` más reciente gana, con tolerancia de ±2–5 s para compensar deriva temporal entre dispositivos. Si el usuario confirma conservar la alternativa, se genera una **copia en conflicto** o se renombra la versión alternativa para revisión manual; nunca hay sobrescritura silenciosa.
 - Política `delete` vs `modify` concurrente:
-  - `delete` define el estado canónico,
-  - `modify` se preserva como copia en conflicto.
-- Normalización temporal: `modified_at` en UTC epoch ms con tolerancia de deriva (±2–5 s), validando siempre con hash.
+  - `delete` define el estado canónico cuando el cambio de borrado es inequívoco,
+  - `modify` se preserva como copia en conflicto si el usuario decide conservar la versión alternativa.
+- Reglas de identificación por ruta y contenido:
+  - si el mismo archivo cambia en dos rutas equivalentes o una ruta se renombra mientras el contenido difiere, se trata como conflicto de contenido, no como “cambio inocuo”;
+  - si la ruta cambia y el contenido es idéntico, se considera un caso de renombrado o copia, no un conflicto.
+- Normalización temporal: `modified_at` en UTC epoch ms con tolerancia de deriva (±2–5 s). Cuando la diferencia temporal no es concluyente, se puede revisar el hash como diagnóstico, pero la regla base de resolución sigue siendo `modified_at`.
 - Convención de nombre de conflicto: sufijo legible en el mismo directorio (incluyendo dispositivo y timestamp).
 
 ### 4.6 Errores, reintentos y recuperación

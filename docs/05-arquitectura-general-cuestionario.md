@@ -8,45 +8,44 @@
 
 ## Sección 2 — Principios de diseño
 
-### 2.1. ¿Cuál es la decisión exacta de conflicto en v1?
-- ¿La versión más reciente gana siempre o solo por defecto?
-- ¿El usuario debe confirmar la resolución o el sistema puede decidir solo?
-- ¿Qué opciones se ofrecen exactamente: aceptar versión nueva, conservar versión antigua, copiar, renombrar, dejar ambas versiones?
+### 2.1. ¿Cuál es la decisión exacta de conflicto en v1?  [RESPONDIDA]
+- La versión más reciente gana solo por defecto.
+- El usuario debe confirmar la resolución cuando hay conflicto real.
+- Las opciones son: aceptar la versión más reciente, conservar la alternativa como copia en conflicto, renombrar la alternativa para revisión manual o dejar ambas versiones persistidas.
 
-### 2.2. ¿Qué significa “archivo más nuevo” en la práctica?
-- ¿Se basa solo en `modified_at`?
-- ¿Qué pasa si `modified_at` es igual o no es fiable?
-- ¿Se valida además con `checksum` antes de aceptar una resolución?
+### 2.2. ¿Qué significa “archivo más nuevo” en la práctica? [RESPONDIDA]
+- En v1, la regla base es `modified_at` con tolerancia de ±2–5 segundos.
+- Si la diferencia temporal es ambigua, se puede revisar el `checksum` como diagnóstico, pero la decisión no depende del hash como criterio principal.
+- La resolución sigue siendo por la versión más reciente por defecto, con confirmación del usuario antes de cerrar el conflicto.
 
-### 2.3. ¿Qué debe ocurrir cuando ambos lados cambian el mismo archivo pero en rutas distintas?
-- ¿Se trata como conflicto de contenido o como renombrado + modificación?
-- ¿Qué se guarda en el historial local y remoto?
+### 2.3. ¿Qué debe ocurrir cuando ambos lados cambian el mismo archivo pero en rutas distintas? [RESPONDIDA]
+- Si el contenido final difiere aunque la ruta cambie, se trata como conflicto de contenido y no como cambio inocuo.
+- Si el contenido es idéntico y solo cambia la ruta, se considera renombrado o copia, no conflicto.
+- En caso de conflicto, se conserva la alternativa como copia/renombrado y la resolución final requiere confirmación del usuario.
 
-### 2.4. ¿Cómo se define el origen de verdad de metadatos en v1?
-- ¿El servidor siempre gana?
-- ¿El cliente puede confirmar o reescribir metadatos sin validación?
-- ¿Qué metadata es canónica: `checksum`, `modified_at`, `path_hash`, `device_id`, `last_sync`?
+### 2.4. ¿Cómo se define el origen de verdad de metadatos en v1? [RESPONDIDA]
+- El servidor siempre gana y es la fuente de verdad de metadatos.
+- El cliente solo propone cambios; no reescribe ni valida autoridad de estado sin confirmar con el servidor.
+- La metadata canónica es la del servidor: `checksum`, `modified_at`, `path_hash`, `device_id`, `last_sync` y estado final de sincronización.
 
-### 2.5. ¿Qué reglas exactas debe seguir la cola local persistente?
-- ¿Se escribe antes de la operación o después del primer intento?
-- ¿Qué ocurre si se reinicia la app durante un upload?
-- ¿Cómo se evita duplicar la misma operación?
+### 2.5. ¿Qué reglas exactas debe seguir la cola local persistente? [RESPONDIDA]
+- La cola se escribe antes de intentar la operación y cada item recibe un `idempotency_key`.
+- Si la app reinicia durante un upload, la operación puede reintentarse sin duplicar efectos porque el servidor dedupea por la misma clave.
+- El cliente mantiene estados `queued`/`in_flight`/`retry` para reintentar de forma segura.
 
-### 2.6. ¿Qué tolera la arquitectura de v1 respecto a fallos parciales?
-- ¿Debe rechazar la operación con reintento?
-- ¿Puede dejar un archivo en estado intermedio?
-- ¿Qué define una operación “completa” y “incompleta”?
+### 2.6. ¿Qué tolera la arquitectura de v1 respecto a fallos parciales? [RESPONDIDA]
+- La operación debe rechazarse y reintentarse; no se deja un archivo en estado intermedio no consistente.
+- La definición de operación completa es aquella que tiene confirmación del servidor y metadatos actualizados.
+- La operación queda incompleta si no existe confirmación final o si hubo error de escritura, red o timeout antes del commit.
 
-### 2.7. ¿Qué se considera una “conflicto real” y qué un “cambio no conflictivo”?
-- ¿Un borrado local vs un cambio remoto es conflicto?
-- ¿Un renombrado local + creación remota del mismo archivo es conflicto?
-- ¿Un cambio de content hash igual pero `modified_at` distinto es conflicto o no?
+### 2.7. ¿Qué se considera una “conflicto real” y qué un “cambio no conflictivo”? [RESPONDIDA]
+- Un conflicto real ocurre cuando ambos lados cambiaron desde la última sincronización y el contenido final difiere por hash.
+- Un cambio no conflictivo ocurre cuando solo un lado cambia el archivo, o cuando la ruta cambia y el contenido final sigue siendo idéntico.
+- Un borrado local frente a modificacion remota se resuelve como borrado canónico si no hay una versión posterior que el usuario quiera conservar.
 
-### 2.8. ¿Quién decide la resolución final del conflicto en v1?
-- ¿El sistema?
-- ¿El usuario?
-- ¿El servidor?
-- ¿El cliente?
+### 2.8. ¿Quién decide la resolución final del conflicto en v1? [RESPONDIDA]
+- El usuario confirma la decisión final con opción de aceptar la versión más reciente o conservar la alternativa como copia/renombrado.
+- El sistema no sobrescribe silenciosamente; el cliente y el servidor solo ejecutan la decisión confirmada.
 
 ### 2.9. ¿Qué tipo de decisiones quedan definidas como “regla por defecto” y cuáles deben ser decisiones manuales del usuario?
 - Confirmación antes de sobrescribir.
