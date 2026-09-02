@@ -1,5 +1,77 @@
 # Distribución de Clientes
 
-## Canales de Distribución
+## 1. Objetivo
 
-**Windows:**
+La distribución de clientes define cómo SyncFiles llega a cada plataforma soportada y cómo se mantiene la versión instalada sincronizada con el ciclo de despliegue y de seguridad.
+
+En V1, la distribución debe ser simple, verificable y consistente:
+- Windows, macOS, Linux y Android,
+- instalación con firma digital,
+- actualización controlada,
+- rollback posible si aparece un problema significativo.
+
+## 2. Canales de distribución
+
+### 2.1 Windows
+
+- instalador `.msi` o `.exe` firmado por certificado válido,
+- distribución por canal interno o por paquete de empresa,
+- validación de firma digital antes de aceptar actualizaciones,
+- soporte para instalación silenciosa en entornos administrados.
+
+### 2.2 macOS
+
+- `.dmg` o paquete `.app` firmado,
+- soporte para entornos de desktop con validación de identidad,
+- actualizaciones por auto-update con verificación de firma,
+- compatibilidad con el sistema operativo soportado por la versión.
+
+### 2.3 Linux
+
+- paquetes `.deb` / `.rpm` o tarball portable,
+- versiones por distribución y perfil de soporte,
+- instalación con permisos del usuario o del sistema según contexto.
+
+### 2.4 Android
+
+- distribución por Google Play o vía internal testing,
+- validación de versión y compatibilidad con API mínima,
+- actualización por store o canal interno según política de despliegue.
+
+## 3. Requisitos mínimos
+
+- firma digital obligatoria para instalar o actualizar,
+- comprobación de hash o versión antes de aplicar actualización,
+- registro de versión instalada por dispositivo,
+- rollback documentado en caso de regresión,
+- mantenimiento de compatibilidad con la API del backend.
+
+## 4. Política de actualización
+
+- no se actualiza automáticamente sin validación de firma,
+- la versión cliente debe comprobar compatibilidad del backend antes de activar nuevas capacidades,
+- si el backend no soporta una funcionalidad, el cliente debe degradar al comportamiento compatible,
+- los cambios mayores deben aplicarse por etapas y con observabilidad.
+
+## 5. Distribución y soporte
+
+La estrategia recomendada es:
+- versión estable + canal beta para pruebas internas,
+- QA y validación antes de release general,
+- seguimiento por dispositivo y versión,
+- alertas cuando una versión queda por debajo del nivel de soporte mínimo.
+
+## 6. Seguridad de distribución
+
+- certificados y firmas verificadas en todos los canales,
+- validación de origen del binario,
+- bloqueo de instalación desde fuentes no autorizadas,
+- no aceptar “actualización” sin integridad y autenticación.
+
+## 7. Criterios de aceptación
+
+La distribución del cliente es adecuada si:
+- cada cliente se instala y actualiza de forma segura,
+- la versión de cliente y backend son compatibles,
+- las actualizaciones pueden revertirse si aparecen regresiones,
+- la arquitectura deja paso a nuevas plataformas sin reescribir el cliente base.
