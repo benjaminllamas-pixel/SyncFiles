@@ -1,0 +1,5 @@
+/syncfiles-client/target/
+/syncfiles-server/target/
+**/.env
+**/.env.*
+!.env.example

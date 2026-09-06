@@ -85,10 +85,22 @@ Sistema multiplataforma de sincronización de archivos con encriptación end-to-
 - `50-funcionalidades-futuras.md` - Features planificadas para versiones posteriores
 
 ## Estado del Proyecto
-🔵 En fase de diseño - Documentación en desarrollo
+🟡 Prototipo V1 en implementación - backend, cliente y dashboard UI inicial
 
 ## Próximos Pasos
-1. Completar requerimientos funcionales y no funcionales
-2. Definir arquitectura de alto nivel
-3. Seleccionar stack tecnológico
-4. Crear prototipos de componentes críticos
+1. Conectar el dashboard UI con el estado real del cliente
+2. Completar cola persistente, reintentos y conflictos
+3. Añadir pruebas de integración cliente-servidor
+
+## Dashboard UI
+
+El cliente incluye un prototipo nativo del dashboard con estado de conexión,
+carpeta sincronizada, archivos recientes y acción de sincronización manual.
+
+```bash
+cd syncfiles-client
+cargo run --bin syncfiles-ui
+```
+
+La URL del servidor y la carpeta local se pueden personalizar con `SF_SERVER_URL`
+y `SF_SYNC_ROOT`.
