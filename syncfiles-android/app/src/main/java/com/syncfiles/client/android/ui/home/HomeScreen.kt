@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -37,12 +38,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.syncfiles.client.android.R
 import com.syncfiles.client.android.data.api.ChangeEntry
+import kotlinx.coroutines.flow.StateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -59,12 +60,19 @@ fun HomeScreen(
     val uploadInFlight by viewModel.uploadInFlight.collectAsStateWithLifecycle()
     val lastMessage by viewModel.lastMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val context = LocalContext.current
 
     val pickFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let { viewModel.uploadFromUri(it) }
+    }
+
+    val pickFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let {
+            viewModel.onSyncRootPicked(it)
+        }
     }
 
     LaunchedEffect(state) {
@@ -116,6 +124,10 @@ fun HomeScreen(
 
                 is HomeUiState.Active -> {
                     SessionCard(s)
+                    SyncRootCard(
+                        name = viewModel.syncRootName,
+                        onPick = { pickFolderLauncher.launch(null) }
+                    )
                     ActionsRow(
                         syncInFlight = syncInFlight,
                         uploadInFlight = uploadInFlight,
@@ -175,6 +187,45 @@ private fun SessionCard(s: HomeUiState.Active) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
+        }
+    }
+}
+
+@Composable
+private fun SyncRootCard(
+    name: StateFlow<String?>,
+    onPick: () -> Unit
+) {
+    val rootName by name.collectAsStateWithLifecycle()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.sync_root_label),
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = rootName ?: stringResource(R.string.sync_root_not_set),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+            OutlinedButton(onClick = onPick) {
+                Icon(Icons.Filled.FolderOpen, contentDescription = null)
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(stringResource(R.string.sync_root_pick))
+            }
         }
     }
 }

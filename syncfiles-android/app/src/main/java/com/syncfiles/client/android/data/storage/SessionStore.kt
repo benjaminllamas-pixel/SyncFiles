@@ -85,6 +85,24 @@ class SessionStore(context: Context) {
             .apply()
     }
 
+    fun saveSyncRoot(uriString: String, displayName: String?) {
+        prefs.edit()
+            .putString(KEY_SYNC_ROOT_URI, uriString)
+            .putString(KEY_SYNC_ROOT_NAME, displayName)
+            .apply()
+    }
+
+    fun getSyncRootUri(): String? = prefs.getString(KEY_SYNC_ROOT_URI, null)
+
+    fun getSyncRootName(): String? = prefs.getString(KEY_SYNC_ROOT_NAME, null)
+
+    fun clearSyncRoot() {
+        prefs.edit()
+            .remove(KEY_SYNC_ROOT_URI)
+            .remove(KEY_SYNC_ROOT_NAME)
+            .apply()
+    }
+
     var lastServerSeq: Long
         get() = prefs.getLong(KEY_LAST_SERVER_SEQ, 0L)
         set(value) { prefs.edit().putLong(KEY_LAST_SERVER_SEQ, value).apply() }
@@ -96,5 +114,7 @@ class SessionStore(context: Context) {
         private const val KEY_EXPIRES_AT = "expires_at"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_LAST_SERVER_SEQ = "last_server_seq"
+        private const val KEY_SYNC_ROOT_URI = "sync_root_uri"
+        private const val KEY_SYNC_ROOT_NAME = "sync_root_name"
     }
 }

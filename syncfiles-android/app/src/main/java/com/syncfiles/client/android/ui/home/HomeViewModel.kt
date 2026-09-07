@@ -3,6 +3,7 @@ package com.syncfiles.client.android.ui.home
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -47,8 +48,12 @@ class HomeViewModel(
     private val _lastMessage = MutableStateFlow<String?>(null)
     val lastMessage: StateFlow<String?> = _lastMessage.asStateFlow()
 
+    private val _syncRootName = MutableStateFlow<String?>(null)
+    val syncRootName: StateFlow<String?> = _syncRootName.asStateFlow()
+
     init {
         checkSession()
+        _syncRootName.value = store.getSyncRootName()
     }
 
     fun checkSession() {
@@ -152,6 +157,18 @@ class HomeViewModel(
 
     fun clearMessage() {
         _lastMessage.value = null
+    }
+
+    fun onSyncRootPicked(uri: android.net.Uri) {
+        val takeFlags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        appContext.contentResolver.takePersistableUriPermission(uri, takeFlags)
+
+        val document = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, uri)
+        val displayName = document?.name ?: uri.lastPathSegment
+
+        store.saveSyncRoot(uri.toString(), displayName)
+        _syncRootName.value = displayName
+        _lastMessage.value = "Carpeta sincronizada: $displayName"
     }
 
     fun logout(onLoggedOut: () -> Unit) {

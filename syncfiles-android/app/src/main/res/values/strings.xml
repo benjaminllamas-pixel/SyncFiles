@@ -13,4 +13,7 @@
     <string name="session_expired">Sesión expirada</string>
     <string name="device_label">Dispositivo</string>
     <string name="user_label">Usuario</string>
+    <string name="sync_root_label">Carpeta sincronizada</string>
+    <string name="sync_root_not_set">Sin seleccionar</string>
+    <string name="sync_root_pick">Elegir carpeta</string>
 </resources>
