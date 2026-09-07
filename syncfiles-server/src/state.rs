@@ -2,11 +2,13 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use crate::config::Config;
 use crate::db;
+use crate::storage::{StorageProvider, LocalDiskStorageProvider};
 
 pub struct AppState {
     pub pool: SqlitePool,
     pub config: Config,
     pub server_seq: Arc<std::sync::atomic::AtomicI64>,
+    pub storage: Arc<dyn StorageProvider>,
 }
 
 impl AppState {
@@ -53,10 +55,14 @@ impl AppState {
         .unwrap_or("0".to_string());
         let seq: i64 = seq.parse().unwrap_or(0);
 
+        let storage = Arc::new(LocalDiskStorageProvider::new(&config.storage_root));
+        storage.init()?;
+
         Ok(Self {
             pool,
             config: config.clone(),
             server_seq: Arc::new(std::sync::atomic::AtomicI64::new(seq)),
+            storage,
         })
     }
 

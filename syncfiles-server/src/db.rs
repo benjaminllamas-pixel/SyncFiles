@@ -1,5 +1,6 @@
 use anyhow::Result;
 use sqlx::SqlitePool;
+use sha2::Digest;
 use crate::models::*;
 
 fn now_ms() -> i64 {
@@ -282,6 +283,17 @@ pub async fn set_last_server_seq(pool: &SqlitePool, seq: i64) -> Result<()> {
 pub async fn delete_file(pool: &SqlitePool, file_id: &str) -> Result<()> {
     sqlx::query("UPDATE files SET status = 'deleted', deleted_at = ? WHERE file_id = ?")
         .bind(now_ms())
+        .bind(file_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn rename_file(pool: &SqlitePool, file_id: &str, new_relative_path: &str) -> Result<()> {
+    let path_hash = hex::encode(sha2::Sha256::digest(new_relative_path.as_bytes()));
+    sqlx::query("UPDATE files SET relative_path = ?, path_hash = ? WHERE file_id = ?")
+        .bind(new_relative_path)
+        .bind(path_hash)
         .bind(file_id)
         .execute(pool)
         .await?;

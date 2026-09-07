@@ -4,6 +4,7 @@ pub mod db;
 pub mod auth;
 pub mod handlers;
 pub mod state;
+pub mod storage;
 
 use anyhow::Result;
 use std::sync::Arc;

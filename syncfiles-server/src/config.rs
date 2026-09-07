@@ -1,12 +1,14 @@
 use anyhow::{Context, Result};
 use dotenvy::dotenv;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct Config {
     pub bind_address: SocketAddr,
     pub database_url: String,
     pub server_url: String,
+    pub storage_root: String,
     pub users: Vec<UserConfig>,
 }
 
@@ -31,6 +33,16 @@ impl Config {
 
         let server_url = std::env::var("SF_SERVER_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
+
+        let storage_root = std::env::var("SF_STORAGE_ROOT")
+            .unwrap_or_else(|_| {
+                dirs::data_local_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join("syncfiles")
+                    .join("storage")
+                    .to_string_lossy()
+                    .into_owned()
+            });
 
         let mut users = Vec::new();
         let mut i = 0;
@@ -65,6 +77,7 @@ impl Config {
             bind_address,
             database_url,
             server_url,
+            storage_root,
             users,
         })
     }

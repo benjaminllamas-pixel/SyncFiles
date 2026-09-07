@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use uuid::Uuid;
 use sqlx::FromRow;
 
@@ -49,7 +49,7 @@ pub struct FileEntry {
     pub status: String,
     pub last_sync_version: i64,
     pub deleted_at: Option<i64>,
-    pub content: String,
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -178,6 +178,45 @@ pub struct DeleteRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadRequest {
+    pub session_id: String,
+    pub device_id: String,
+    pub file_id: String,
+    pub path_hash: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenameRequest {
+    pub session_id: String,
+    pub device_id: String,
+    pub file_id: String,
+    pub old_path: String,
+    pub new_path: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoveRequest {
+    pub session_id: String,
+    pub device_id: String,
+    pub file_id: String,
+    pub old_path: String,
+    pub new_path: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CopyRequest {
+    pub session_id: String,
+    pub device_id: String,
+    pub file_id: String,
+    pub source_path: String,
+    pub destination_path: String,
+    pub idempotency_key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolveConflictRequest {
     pub session_id: String,
     pub device_id: String,
@@ -194,6 +233,7 @@ pub struct DownloadResponse {
     pub checksum: String,
     pub content: String,
     pub file_id: String,
+    pub server_seq: i64,
 }
 
 pub fn now_ms() -> i64 {

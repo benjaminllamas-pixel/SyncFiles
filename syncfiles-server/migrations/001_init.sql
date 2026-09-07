@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS files (
     status TEXT NOT NULL DEFAULT 'pending',
     last_sync_version INTEGER DEFAULT 0,
     deleted_at INTEGER,
-    content TEXT NOT NULL DEFAULT '',
+    content TEXT,
     UNIQUE(user_id, path_hash),
     FOREIGN KEY(user_id) REFERENCES users(user_id),
     FOREIGN KEY(device_id) REFERENCES devices(device_id)
