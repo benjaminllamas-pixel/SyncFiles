@@ -21,5 +21,6 @@ notify = "6.1"
 sha2 = "0.10"
 dirs = "5"
 eframe = "0.29"
+rfd = "0.15"
 
 [build-dependencies]

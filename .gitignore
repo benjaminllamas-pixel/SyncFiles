@@ -1,5 +1,29 @@
+# Rust build artifacts
 /syncfiles-client/target/
 /syncfiles-server/target/
+
+# Env files
 **/.env
 **/.env.*
 !.env.example
+
+# OS
+.DS_Store
+
+# Server SQLite database and data dir
+/syncfiles-server/data/
+/data/
+
+# Android build outputs
+/syncfiles-android/.gradle/
+/syncfiles-android/build/
+/syncfiles-android/app/build/
+/syncfiles-android/local.properties
+**/*.apk
+**/*.ap_
+**/proguard/
+
+# Android Studio / IntelliJ
+/syncfiles-android/.idea/
+/syncfiles-android/.kotlin/
+**/*.iml

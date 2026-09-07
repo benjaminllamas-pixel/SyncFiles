@@ -104,3 +104,7 @@ cargo run --bin syncfiles-ui
 
 La URL del servidor y la carpeta local se pueden personalizar con `SF_SERVER_URL`
 y `SF_SYNC_ROOT`.
+
+En pantallas pequeñas el dashboard cambia a navegación compacta y tarjetas
+adaptadas para Android. En Android la carpeta se configura escribiendo la ruta
+en Preferencias; el selector gráfico de carpetas queda disponible en escritorio.

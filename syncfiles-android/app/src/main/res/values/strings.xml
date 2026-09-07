@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SyncFiles</string>
+    <string name="login_title">Iniciar sesión</string>
+    <string name="email_label">Correo electrónico</string>
+    <string name="password_label">Contraseña</string>
+    <string name="server_label">Servidor</string>
+    <string name="login_button">Entrar</string>
+    <string name="login_error">No se pudo iniciar sesión. Verifica tus datos y el servidor.</string>
+    <string name="logout">Cerrar sesión</string>
+    <string name="sync_now">Sincronizar ahora</string>
+    <string name="session_active">Sesión activa</string>
+    <string name="session_expired">Sesión expirada</string>
+    <string name="device_label">Dispositivo</string>
+    <string name="user_label">Usuario</string>
+</resources>
