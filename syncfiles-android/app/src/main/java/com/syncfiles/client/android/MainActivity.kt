@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.syncfiles.client.android.data.local.LocalFileSyncStore
 import com.syncfiles.client.android.data.storage.SessionStore
 import com.syncfiles.client.android.ui.home.HomeScreen
 import com.syncfiles.client.android.ui.home.HomeViewModel
@@ -19,19 +20,20 @@ import com.syncfiles.client.android.ui.theme.SyncFilesTheme
 class MainActivity : ComponentActivity() {
 
     private val sessionStore: SessionStore by lazy { SessionStore(this) }
+    private val localFileStore: LocalFileSyncStore by lazy { LocalFileSyncStore(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             SyncFilesTheme {
-                SyncFilesApp(sessionStore)
+                SyncFilesApp(sessionStore, localFileStore)
             }
         }
     }
 }
 
 @Composable
-fun SyncFilesApp(sessionStore: SessionStore) {
+fun SyncFilesApp(sessionStore: SessionStore, localFileStore: LocalFileSyncStore) {
     val navController = rememberNavController()
     val startDestination = if (sessionStore.getActiveSession() != null) "home" else "login"
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
@@ -52,7 +54,7 @@ fun SyncFilesApp(sessionStore: SessionStore) {
         }
         composable("home") {
             val homeViewModel: HomeViewModel = viewModel(
-                factory = HomeViewModel.Factory(appContext, sessionStore)
+                factory = HomeViewModel.Factory(appContext, sessionStore, localFileStore)
             )
             HomeScreen(
                 viewModel = homeViewModel,

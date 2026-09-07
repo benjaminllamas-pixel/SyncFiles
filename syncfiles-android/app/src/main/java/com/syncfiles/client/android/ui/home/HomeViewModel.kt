@@ -13,6 +13,7 @@ import com.syncfiles.client.android.data.api.ChangeEntry
 import com.syncfiles.client.android.data.api.DiffRequest
 import com.syncfiles.client.android.data.api.SyncFilesApi
 import com.syncfiles.client.android.data.api.UploadRequest
+import com.syncfiles.client.android.data.local.LocalFileSyncStore
 import com.syncfiles.client.android.data.storage.SessionStore
 import com.syncfiles.client.android.data.storage.StoredSession
 import com.syncfiles.client.android.data.util.Hashing
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.UUID
 
 sealed class HomeUiState {
@@ -30,7 +32,8 @@ sealed class HomeUiState {
 
 class HomeViewModel(
     private val appContext: Context,
-    private val store: SessionStore
+    private val store: SessionStore,
+    private val localStore: LocalFileSyncStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
@@ -169,6 +172,22 @@ class HomeViewModel(
         store.saveSyncRoot(uri.toString(), displayName)
         _syncRootName.value = displayName
         _lastMessage.value = "Carpeta sincronizada: $displayName"
+
+        viewModelScope.launch {
+            try {
+                val pathFile = resolveRootFile(uri)
+                localStore.scanAndUpsert(pathFile)
+                _lastMessage.value = "Carpeta escaneada: ${localStore.listAll().size} archivos"
+            } catch (e: Exception) {
+                _lastMessage.value = "Carpeta seleccionada: $displayName"
+            }
+        }
+    }
+
+    private fun resolveRootFile(uri: android.net.Uri): File {
+        val document = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, uri)
+        val path = document?.uri?.path ?: throw IllegalStateException("SAF path unavailable")
+        return File(path)
     }
 
     fun logout(onLoggedOut: () -> Unit) {
@@ -204,10 +223,14 @@ class HomeViewModel(
         }
     }
 
-    class Factory(private val appContext: Context, private val store: SessionStore) : ViewModelProvider.Factory {
+    class Factory(
+        private val appContext: Context,
+        private val store: SessionStore,
+        private val localStore: LocalFileSyncStore
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return HomeViewModel(appContext, store) as T
+            return HomeViewModel(appContext, store, localStore) as T
         }
     }
 }

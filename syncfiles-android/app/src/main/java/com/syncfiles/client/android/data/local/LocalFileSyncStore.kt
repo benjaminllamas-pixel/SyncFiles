@@ -3,6 +3,8 @@ package com.syncfiles.client.android.data.local
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
+import com.syncfiles.client.android.data.util.Hashing
+import java.io.File
 
 data class LocalFile(
     val fileId: String,
@@ -73,6 +75,39 @@ class LocalFileSyncStore(context: Context) {
                             lastSyncVersion = cursor.getLong(7)
                         )
                     )
+                }
+            }
+        }
+    }
+
+    fun scanAndUpsert(root: File) {
+        if (!root.exists() || !root.isDirectory) return
+        scanAndUpsertInternal(root, root)
+    }
+
+    private fun scanAndUpsertInternal(root: File, current: File) {
+        val entries = current.listFiles() ?: return
+        for (entry in entries) {
+            val relative = entry.relativeTo(root).toPath().toString().replace('\\', '/')
+            if (entry.isDirectory) {
+                scanAndUpsertInternal(root, entry)
+            } else if (entry.isFile) {
+                try {
+                    val checksum = Hashing.sha256Hex(entry.readBytes())
+                    upsert(
+                        LocalFile(
+                            fileId = Hashing.sha256Hex(relative),
+                            relativePath = relative,
+                            pathHash = Hashing.sha256Hex(relative),
+                            checksum = checksum,
+                            sizeBytes = entry.length(),
+                            modifiedAt = entry.lastModified(),
+                            status = "local",
+                            lastSyncVersion = 0
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "No se pudo escanear ${entry.absolutePath}: ${e.message}")
                 }
             }
         }

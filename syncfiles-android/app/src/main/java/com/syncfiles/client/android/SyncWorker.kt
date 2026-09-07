@@ -1,7 +1,9 @@
 package com.syncfiles.client.android
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
+import androidx.documentfile.provider.DocumentFile
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.syncfiles.client.android.data.api.ApiClientFactory
@@ -37,7 +39,7 @@ class SyncWorker(
         for (entry in pending) {
             try {
                 when (entry.operation) {
-                    "upload" -> uploadFile(api, session, entry, serverConfig.baseUrl)
+                    "upload" -> uploadFile(api, session, entry)
                     "delete" -> api.delete(
                         DeleteRequest(
                             session_id = session.sessionId,
@@ -63,10 +65,9 @@ class SyncWorker(
     private suspend fun uploadFile(
         api: SyncFilesApi,
         session: com.syncfiles.client.android.data.storage.StoredSession,
-        entry: com.syncfiles.client.android.data.local.QueueEntry,
-        baseUrl: String
+        entry: com.syncfiles.client.android.data.local.QueueEntry
     ) {
-        val root = File(applicationContext.filesDir, "sync_root").apply { mkdirs() }
+        val root = localRoot()
         val file = File(root, entry.relativePath)
         if (!file.exists()) {
             queue.markDone(entry.queueId)
@@ -91,6 +92,21 @@ class SyncWorker(
         if (!response.accepted) {
             throw IllegalStateException(response.error?.message ?: "upload rechazado")
         }
+    }
+
+    private fun localRoot(): File {
+        val uriString = sessionStore.getSyncRootUri()
+        if (!uriString.isNullOrEmpty()) {
+            return try {
+                val uri = Uri.parse(uriString)
+                val doc = DocumentFile.fromTreeUri(applicationContext, uri)
+                val path = doc?.uri?.path ?: throw IllegalStateException("SAF path unavailable")
+                File(path)
+            } catch (_: Exception) {
+                File(applicationContext.filesDir, "sync_root").apply { mkdirs() }
+            }
+        }
+        return File(applicationContext.filesDir, "sync_root").apply { mkdirs() }
     }
 
     companion object {

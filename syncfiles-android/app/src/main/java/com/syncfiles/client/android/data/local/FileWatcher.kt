@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.FileObserver
 import android.provider.OpenableColumns
+import androidx.documentfile.provider.DocumentFile
 import com.syncfiles.client.android.data.util.Hashing
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
