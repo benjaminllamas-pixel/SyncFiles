@@ -262,16 +262,18 @@ pub async fn audit_event(pool: &SqlitePool, event: &AuditEntry) -> Result<()> {
 }
 
 pub async fn get_last_server_seq(pool: &SqlitePool) -> Result<i64> {
-    let result = sqlx::query_scalar::<_, i64>("SELECT COALESCE((SELECT value FROM metadata WHERE key = 'last_server_seq'), 0)")
-        .fetch_optional(pool)
-        .await?
-        .unwrap_or(0);
-    Ok(result)
+    let result = sqlx::query_scalar::<_, String>(
+        "SELECT COALESCE((SELECT value FROM metadata WHERE key = 'last_server_seq'), '0')"
+    )
+    .fetch_optional(pool)
+    .await?
+    .unwrap_or("0".to_string());
+    Ok(result.parse().unwrap_or(0))
 }
 
 pub async fn set_last_server_seq(pool: &SqlitePool, seq: i64) -> Result<()> {
     sqlx::query("INSERT OR REPLACE INTO metadata (key, value) VALUES ('last_server_seq', ?)")
-        .bind(seq)
+        .bind(seq.to_string())
         .execute(pool)
         .await?;
     Ok(())

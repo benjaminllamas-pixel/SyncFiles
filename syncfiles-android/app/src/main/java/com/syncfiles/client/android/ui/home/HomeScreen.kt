@@ -122,10 +122,7 @@ fun HomeScreen(
                         onSync = { viewModel.syncNow() },
                         onPick = { pickFileLauncher.launch(arrayOf("*/*")) }
                     )
-                    ChangesList(
-                        changes = changes,
-                        contentPadding = PaddingValues(0.dp)
-                    )
+                    ChangesList(changes = changes)
                 }
 
                 is HomeUiState.Error -> {
@@ -229,10 +226,7 @@ private fun ActionsRow(
 }
 
 @Composable
-private fun ChangesList(
-    changes: List<ChangeEntry>,
-    contentPadding: PaddingValues
-) {
+private fun ChangesList(changes: List<ChangeEntry>) {
     if (changes.isEmpty()) {
         Text(
             "Sin cambios. Pulsa \"Sincronizar ahora\" para obtener el estado del servidor.",
@@ -243,7 +237,6 @@ private fun ChangesList(
     }
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(changes, key = { it.file_id }) { change ->

@@ -45,12 +45,13 @@ impl AppState {
             .await?;
         }
 
-        let seq = sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE((SELECT value FROM metadata WHERE key = 'last_server_seq'), 0)"
+        let seq = sqlx::query_scalar::<_, String>(
+            "SELECT COALESCE((SELECT value FROM metadata WHERE key = 'last_server_seq'), '0')"
         )
         .fetch_optional(&pool)
         .await?
-        .unwrap_or(0);
+        .unwrap_or("0".to_string());
+        let seq: i64 = seq.parse().unwrap_or(0);
 
         Ok(Self {
             pool,
