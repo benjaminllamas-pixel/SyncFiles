@@ -2300,6 +2300,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "syncfiles-models"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "sha2",
+ "uuid",
+]
+
+[[package]]
 name = "syncfiles-server"
 version = "0.1.0"
 dependencies = [
@@ -2318,6 +2328,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
+ "syncfiles-models",
  "tempfile",
  "thiserror",
  "tokio",

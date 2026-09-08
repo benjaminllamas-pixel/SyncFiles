@@ -1,10 +1,9 @@
-use serde::{Deserialize, Serialize};
-use chrono::Utc;
-use uuid::Uuid;
+pub use syncfiles_models::*;
 use sqlx::FromRow;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct User {
+pub struct UserRow {
     pub user_id: String,
     pub email: String,
     pub password_hash: String,
@@ -14,7 +13,7 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Device {
+pub struct DeviceRow {
     pub device_id: String,
     pub user_id: String,
     pub platform: String,
@@ -24,7 +23,7 @@ pub struct Device {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Session {
+pub struct SessionRow {
     pub session_id: String,
     pub user_id: String,
     pub device_id: String,
@@ -36,7 +35,7 @@ pub struct Session {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct FileEntry {
+pub struct FileEntryRow {
     pub file_id: String,
     pub user_id: String,
     pub device_id: String,
@@ -53,7 +52,7 @@ pub struct FileEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct SyncQueueEntry {
+pub struct SyncQueueEntryRow {
     pub queue_id: String,
     pub file_id: String,
     pub user_id: String,
@@ -69,7 +68,7 @@ pub struct SyncQueueEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Conflict {
+pub struct ConflictRow {
     pub conflict_id: String,
     pub file_id: String,
     pub user_id: String,
@@ -85,7 +84,7 @@ pub struct Conflict {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct AuditEntry {
+pub struct AuditEntryRow {
     pub audit_id: String,
     pub user_id: Option<String>,
     pub device_id: Option<String>,
@@ -93,153 +92,4 @@ pub struct AuditEntry {
     pub event_type: Option<String>,
     pub payload_json: Option<String>,
     pub created_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoginRequest {
-    pub email: String,
-    pub password: String,
-    pub device_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoginResponse {
-    pub session_id: String,
-    pub expires_at: i64,
-    pub device_id: String,
-    pub user_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiffRequest {
-    pub since: i64,
-    pub device_id: String,
-    pub session_id: String,
-    pub request_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiffResponse {
-    pub changes: Vec<ChangeEntry>,
-    pub server_seq: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChangeEntry {
-    pub file_id: String,
-    pub operation: String,
-    pub path_hash: String,
-    pub checksum: String,
-    pub modified_at: i64,
-    pub device_id: String,
-    pub relative_path: Option<String>,
-    pub content: Option<String>,
-    pub size_bytes: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UploadRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub file_id: String,
-    pub relative_path: String,
-    pub path_hash: String,
-    pub checksum: String,
-    pub size_bytes: i64,
-    pub modified_at: i64,
-    pub idempotency_key: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiResponse<T> {
-    pub accepted: bool,
-    pub status: String,
-    pub server_seq: Option<i64>,
-    pub data: Option<T>,
-    pub error: Option<ApiError>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiError {
-    pub code: String,
-    pub message: String,
-    pub retryable: bool,
-    pub request_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeleteRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub file_id: String,
-    pub path_hash: String,
-    pub idempotency_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DownloadRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub file_id: String,
-    pub path_hash: String,
-    pub idempotency_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RenameRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub file_id: String,
-    pub old_path: String,
-    pub new_path: String,
-    pub idempotency_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MoveRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub file_id: String,
-    pub old_path: String,
-    pub new_path: String,
-    pub idempotency_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CopyRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub file_id: String,
-    pub source_path: String,
-    pub destination_path: String,
-    pub idempotency_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResolveConflictRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub conflict_id: String,
-    pub decision: String,
-    pub preserve_alternative: bool,
-    pub new_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DownloadResponse {
-    pub accepted: bool,
-    pub status: String,
-    pub checksum: String,
-    pub content: String,
-    pub file_id: String,
-    pub server_seq: i64,
-}
-
-pub fn now_ms() -> i64 {
-    Utc::now().timestamp_millis()
-}
-
-pub fn uuid_str() -> String {
-    Uuid::new_v4().to_string()
 }

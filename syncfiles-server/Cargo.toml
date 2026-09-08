@@ -25,6 +25,7 @@ async-trait = "0.1"
 base64 = "0.21"
 hex = "0.4"
 tempfile = "3"
+syncfiles-models = { path = "../syncfiles-models" }
 
 [build-dependencies]
 

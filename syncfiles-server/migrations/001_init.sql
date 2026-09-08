@@ -64,6 +64,12 @@ CREATE TABLE IF NOT EXISTS sync_queue (
     last_error TEXT
 );
 
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    idempotency_key TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS conflicts (
     conflict_id TEXT PRIMARY KEY,
     file_id TEXT NOT NULL,
@@ -95,6 +101,10 @@ CREATE TABLE IF NOT EXISTS metadata (
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_user_path ON files(user_id, path_hash);
+CREATE INDEX IF NOT EXISTS idx_files_user_deleted ON files(user_id, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_user_status ON sync_queue(user_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_conflicts_user_file ON conflicts(file_id);
 CREATE INDEX IF NOT EXISTS idx_audit_event_time ON audit_log(created_at, event_name);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_idempotency_session ON idempotency_keys(session_id);
