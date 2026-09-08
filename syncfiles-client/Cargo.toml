@@ -22,5 +22,7 @@ sha2 = "0.10"
 dirs = "5"
 eframe = "0.29"
 rfd = "0.15"
+syncfiles-models = { path = "../syncfiles-models" }
+base64 = "0.21"
 
 [build-dependencies]

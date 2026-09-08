@@ -1,61 +1,12 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
-use std::path::{Path, PathBuf};
-use tracing::{info, warn, error};
-use chrono::{DateTime, Utc};
+use std::path::Path;
+use tracing::info;
+use chrono::Utc;
 
 use crate::config::Config;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileEntry {
-    pub file_id: String,
-    pub user_id: String,
-    pub device_id: String,
-    pub relative_path: String,
-    pub path_hash: String,
-    pub checksum: String,
-    pub size_bytes: i64,
-    pub modified_at: i64,
-    pub synced_at: Option<i64>,
-    pub status: FileStatus,
-    pub last_sync_version: i64,
-    pub deleted_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum FileStatus {
-    Pending,
-    Synced,
-    Conflict,
-    Quarantined,
-    Deleted,
-}
-
-impl std::fmt::Display for FileStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FileStatus::Pending => write!(f, "pending"),
-            FileStatus::Synced => write!(f, "synced"),
-            FileStatus::Conflict => write!(f, "conflict"),
-            FileStatus::Quarantined => write!(f, "quarantined"),
-            FileStatus::Deleted => write!(f, "deleted"),
-        }
-    }
-}
-
-impl From<&str> for FileStatus {
-    fn from(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "synced" => FileStatus::Synced,
-            "conflict" => FileStatus::Conflict,
-            "quarantined" => FileStatus::Quarantined,
-            "deleted" => FileStatus::Deleted,
-            _ => FileStatus::Pending,
-        }
-    }
-}
+use syncfiles_models::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncQueueEntry {
@@ -83,6 +34,36 @@ pub struct SessionRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Conflict {
+    pub conflict_id: String,
+    pub file_id: String,
+    pub local_checksum: Option<String>,
+    pub remote_checksum: Option<String>,
+    pub strategy: String,
+    pub created_at: i64,
+    pub resolved_at: Option<i64>,
+    pub resolved_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEntry {
+    pub audit_id: String,
+    pub user_id: Option<String>,
+    pub device_id: Option<String>,
+    pub event_name: String,
+    pub payload_json: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceRecord {
+    pub device_id: String,
+    pub platform: String,
+    pub device_name: Option<String>,
+    pub last_seen_at: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct Session {
     pub session_id: String,
     pub user_id: String,
@@ -96,84 +77,11 @@ pub struct MetadataStore {
     pub config: Config,
 }
 
-const INIT_SQL: &str = "
-CREATE TABLE IF NOT EXISTS files (
-    file_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    relative_path TEXT NOT NULL,
-    path_hash TEXT NOT NULL,
-    checksum TEXT NOT NULL,
-    size_bytes INTEGER NOT NULL,
-    modified_at INTEGER NOT NULL,
-    synced_at INTEGER,
-    status TEXT NOT NULL DEFAULT 'pending',
-    last_sync_version INTEGER DEFAULT 0,
-    deleted_at INTEGER,
-    UNIQUE(user_id, path_hash)
-);
-
-CREATE TABLE IF NOT EXISTS sync_queue (
-    queue_id TEXT PRIMARY KEY,
-    file_id TEXT NOT NULL,
-    operation TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'queued',
-    attempts INTEGER NOT NULL DEFAULT 0,
-    idempotency_key TEXT NOT NULL,
-    payload_json TEXT,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    last_error TEXT,
-    FOREIGN KEY(file_id) REFERENCES files(file_id)
-);
-
-CREATE TABLE IF NOT EXISTS sessions (
-    session_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    token_hash TEXT NOT NULL,
-    expires_at INTEGER NOT NULL,
-    revoked_at INTEGER,
-    status TEXT NOT NULL DEFAULT 'active'
-);
-
-CREATE TABLE IF NOT EXISTS conflicts (
-    conflict_id TEXT PRIMARY KEY,
-    file_id TEXT NOT NULL,
-    device_local TEXT,
-    device_remote TEXT,
-    local_checksum TEXT,
-    remote_checksum TEXT,
-    strategy TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    resolved_at INTEGER,
-    resolved_by TEXT
-);
-
-CREATE TABLE IF NOT EXISTS audit_log (
-    audit_id TEXT PRIMARY KEY,
-    user_id TEXT,
-    device_id TEXT,
-    event_name TEXT NOT NULL,
-    payload_json TEXT,
-    created_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_files_user_path ON files(user_id, path_hash);
-CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_conflicts_file ON conflicts(file_id);
-
-CREATE TABLE IF NOT EXISTS metadata (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-";
-
 impl MetadataStore {
     pub fn new(cfg: Config) -> Result<Self> {
         let db_path = Config::data_dir().join("syncfiles.db");
         let conn = Connection::open(&db_path)?;
-        conn.execute_batch(INIT_SQL)?;
+        conn.execute_batch(syncfiles_models::schema::CLIENT_INIT_SQL)?;
         info!("Base de datos local inicializada: {}", db_path.display());
         Ok(Self { conn, config: cfg })
     }
@@ -217,7 +125,7 @@ impl MetadataStore {
     pub fn upsert_file(&self, entry: &FileEntry) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO files (file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![entry.file_id, entry.user_id, entry.device_id, entry.relative_path, entry.path_hash, entry.checksum, entry.size_bytes, entry.modified_at, entry.synced_at, entry.status.to_string(), entry.last_sync_version, entry.deleted_at],
+            params![entry.file_id, entry.user_id, entry.device_id, entry.relative_path, entry.path_hash, entry.checksum, entry.size_bytes, entry.modified_at, entry.synced_at, entry.status, entry.last_sync_version, entry.deleted_at],
         )?;
         Ok(())
     }
@@ -235,9 +143,10 @@ impl MetadataStore {
                 size_bytes: row.get(6)?,
                 modified_at: row.get(7)?,
                 synced_at: row.get(8)?,
-                status: FileStatus::from(row.get::<_, String>(9)?.as_str()),
+                status: row.get(9)?,
                 last_sync_version: row.get(10)?,
                 deleted_at: row.get(11)?,
+                content: None,
             })
         })?;
         let mut result = Vec::new();
@@ -323,15 +232,11 @@ impl MetadataStore {
 
     pub fn hash_file(&self, path: &Path) -> Result<String> {
         let content = std::fs::read(path)?;
-        let mut hasher = Sha256::new();
-        hasher.update(&content);
-        Ok(format!("{:x}", hasher.finalize()))
+        Ok(compute_checksum(&content))
     }
 
     pub fn path_hash(&self, path: &str) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(path.as_bytes());
-        format!("{:x}", hasher.finalize())
+        compute_path_hash(path)
     }
 
     pub fn get_last_server_seq(&self) -> Result<i64> {
@@ -346,5 +251,77 @@ impl MetadataStore {
             params![seq],
         )?;
         Ok(())
+    }
+
+    pub fn get_conflicts(&self) -> Result<Vec<Conflict>> {
+        let mut stmt = self.conn.prepare("SELECT conflict_id, file_id, local_checksum, remote_checksum, strategy, created_at, resolved_at, resolved_by FROM conflicts WHERE resolved_at IS NULL ORDER BY created_at")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Conflict {
+                conflict_id: row.get(0)?,
+                file_id: row.get(1)?,
+                local_checksum: row.get(2)?,
+                remote_checksum: row.get(3)?,
+                strategy: row.get(4)?,
+                created_at: row.get(5)?,
+                resolved_at: row.get(6)?,
+                resolved_by: row.get(7)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn get_audit_log(&self) -> Result<Vec<AuditEntry>> {
+        let mut stmt = self.conn.prepare("SELECT audit_id, user_id, device_id, event_name, payload_json, created_at FROM audit_log ORDER BY created_at DESC LIMIT 200")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(AuditEntry {
+                audit_id: row.get(0)?,
+                user_id: row.get(1)?,
+                device_id: row.get(2)?,
+                event_name: row.get(3)?,
+                payload_json: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn get_devices(&self) -> Result<Vec<DeviceRecord>> {
+        let mut stmt = self.conn.prepare("SELECT device_id, platform, device_name, last_seen_at FROM devices")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(DeviceRecord {
+                device_id: row.get(0)?,
+                platform: row.get(1)?,
+                device_name: row.get(2)?,
+                last_seen_at: row.get(3)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn upsert_device(&self, device: &DeviceRecord) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO devices (device_id, platform, device_name, last_seen_at) VALUES (?1, ?2, ?3, ?4)",
+            params![device.device_id, device.platform, device.device_name, device.last_seen_at],
+        )?;
+        Ok(())
+    }
+}
+
+impl SessionRecord {
+    pub fn is_expired(&self) -> bool {
+        let now = Utc::now().timestamp_millis();
+        now >= self.expires_at
     }
 }

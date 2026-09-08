@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
-use sha2::{Sha256, Digest};
+
+use syncfiles_models::{compute_checksum, compute_path_hash};
 
 pub struct FileWatcher {
     root: PathBuf,
@@ -39,19 +40,6 @@ impl FileWatcher {
         info!("File watcher iniciado en: {:?}", self.root);
         Ok(watcher)
     }
-}
-
-pub fn compute_checksum(content: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(content);
-    format!("{:x}", hasher.finalize())
-}
-
-pub fn compute_path_hash(path: &str) -> String {
-    let normalized = path.trim_start_matches('/');
-    let mut hasher = Sha256::new();
-    hasher.update(normalized.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 pub fn get_file_mod_time(path: &std::path::Path) -> Result<i64> {

@@ -6,109 +6,13 @@ use std::time::Duration;
 use tracing::info;
 use uuid::Uuid;
 
+use syncfiles_models::{ApiResponse, ApiError, LoginRequest, LoginResponse, DiffRequest, DiffResponse, ChangeEntry, UploadRequest, DeleteRequest, DownloadRequest, ResolveConflictRequest, DownloadResponse, now_ms};
+
 #[derive(Debug, Clone)]
 pub struct SyncClient {
     http: Client,
     base_url: String,
     device_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiResponse<T> {
-    pub accepted: bool,
-    pub status: String,
-    pub server_seq: Option<i64>,
-    pub data: Option<T>,
-    pub error: Option<ApiError>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiError {
-    pub code: String,
-    pub message: String,
-    pub retryable: bool,
-    pub request_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoginRequest {
-    pub email: String,
-    pub password: String,
-    pub device_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoginResponse {
-    pub session_id: String,
-    pub expires_at: i64,
-    pub device_id: String,
-    pub user_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiffRequest {
-    pub since: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UploadRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub file_id: String,
-    pub relative_path: String,
-    pub path_hash: String,
-    pub checksum: String,
-    pub size_bytes: i64,
-    pub modified_at: i64,
-    pub idempotency_key: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeleteRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub file_id: String,
-    pub path_hash: String,
-    pub idempotency_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResolveConflictRequest {
-    pub session_id: String,
-    pub device_id: String,
-    pub conflict_id: String,
-    pub decision: String,
-    pub preserve_alternative: bool,
-    pub new_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiffResponse {
-    pub changes: Vec<ChangeEntry>,
-    pub server_seq: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChangeEntry {
-    pub file_id: String,
-    pub operation: String,
-    pub path_hash: String,
-    pub checksum: String,
-    pub modified_at: i64,
-    pub device_id: String,
-    pub relative_path: Option<String>,
-    pub content: Option<String>,
-    pub size_bytes: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DownloadResponse {
-    pub accepted: bool,
-    pub status: String,
-    pub checksum: String,
-    pub content: String,
-    pub file_id: String,
 }
 
 impl SyncClient {
@@ -176,7 +80,7 @@ impl SyncClient {
             "password": password,
             "device_id": device_id
         });
-        self.request(reqwest::Method::POST, "/v1/auth/login", Some(payload), None).await
+        self.request(reqwest::Method::POST, "/api/v1/auth/login", Some(payload), None).await
     }
 
     pub async fn get_diff(&self, session_id: &str, since: i64) -> Result<DiffResponse> {
@@ -186,12 +90,12 @@ impl SyncClient {
             "session_id": session_id,
             "request_id": self.request_id(),
         });
-        self.request(reqwest::Method::POST, "/v1/sync/diff", Some(payload), Some(session_id)).await
+        self.request(reqwest::Method::POST, "/api/v1/sync/diff", Some(payload), Some(session_id)).await
     }
 
     pub async fn upload(&self, req: &UploadRequest) -> Result<ApiResponse<()>> {
         let payload = serde_json::to_value(req)?;
-        self.request(reqwest::Method::POST, "/v1/sync/upload", Some(payload), Some(&req.session_id)).await
+        self.request(reqwest::Method::POST, "/api/v1/sync/upload", Some(payload), Some(&req.session_id)).await
     }
 
     pub async fn download(&self, session_id: &str, file_id: &str, path_hash: &str) -> Result<DownloadResponse> {
@@ -202,7 +106,7 @@ impl SyncClient {
             "path_hash": path_hash,
             "idempotency_key": self.next_idempotency_key(),
         });
-        self.request(reqwest::Method::POST, "/v1/sync/download", Some(payload), Some(session_id)).await
+        self.request(reqwest::Method::POST, "/api/v1/sync/download", Some(payload), Some(session_id)).await
     }
 
     pub async fn delete(&self, session_id: &str, file_id: &str, path_hash: &str) -> Result<ApiResponse<()>> {
@@ -214,11 +118,82 @@ impl SyncClient {
             idempotency_key: self.next_idempotency_key(),
         };
         let v = serde_json::to_value(&payload)?;
-        self.request(reqwest::Method::POST, "/v1/sync/delete", Some(v), Some(session_id)).await
+        self.request(reqwest::Method::POST, "/api/v1/sync/delete", Some(v), Some(session_id)).await
     }
 
     pub async fn resolve_conflict(&self, session_id: &str, req: &ResolveConflictRequest) -> Result<ApiResponse<()>> {
         let payload = serde_json::to_value(req)?;
-        self.request(reqwest::Method::POST, "/v1/conflicts/resolve", Some(payload), Some(session_id)).await
+        self.request(reqwest::Method::POST, "/api/v1/conflicts/resolve", Some(payload), Some(session_id)).await
     }
+
+    pub async fn rename(&self, session_id: &str, file_id: &str, old_path: &str, new_path: &str) -> Result<ApiResponse<()>> {
+        let payload = serde_json::json!({
+            "session_id": session_id,
+            "device_id": self.device_id,
+            "file_id": file_id,
+            "old_path": old_path,
+            "new_path": new_path,
+            "idempotency_key": self.next_idempotency_key(),
+        });
+        self.request(reqwest::Method::POST, "/api/v1/sync/rename", Some(payload), Some(session_id)).await
+    }
+
+    pub async fn move_file(&self, session_id: &str, file_id: &str, old_path: &str, new_path: &str) -> Result<ApiResponse<()>> {
+        let payload = serde_json::json!({
+            "session_id": session_id,
+            "device_id": self.device_id,
+            "file_id": file_id,
+            "old_path": old_path,
+            "new_path": new_path,
+            "idempotency_key": self.next_idempotency_key(),
+        });
+        self.request(reqwest::Method::POST, "/api/v1/sync/move", Some(payload), Some(session_id)).await
+    }
+
+    pub async fn copy_file(&self, session_id: &str, file_id: &str, source_path: &str, destination_path: &str) -> Result<ApiResponse<()>> {
+        let payload = serde_json::json!({
+            "session_id": session_id,
+            "device_id": self.device_id,
+            "file_id": file_id,
+            "source_path": source_path,
+            "destination_path": destination_path,
+            "idempotency_key": self.next_idempotency_key(),
+        });
+        self.request(reqwest::Method::POST, "/api/v1/sync/copy", Some(payload), Some(session_id)).await
+    }
+
+    pub async fn logout(&self, session_id: &str) -> Result<ApiResponse<()>> {
+        let payload = serde_json::json!({
+            "session_id": session_id,
+            "device_id": self.device_id,
+        });
+        self.request(reqwest::Method::POST, "/api/v1/auth/logout", Some(payload), Some(session_id)).await
+    }
+
+    pub async fn session_status(&self, session_id: &str) -> Result<SessionStatusResponse> {
+        let url = format!("{}/api/v1/session/status", self.base_url);
+        let resp = self.http
+            .get(&url)
+            .bearer_auth(session_id)
+            .send()
+            .await
+            .with_context(|| format!("Failed to GET {}", url))?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            return Err(anyhow!("Session status error: {}", text));
+        }
+        let result: SessionStatusResponse = serde_json::from_str(&text)
+            .with_context(|| "Failed to parse session status")?;
+        Ok(result)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionStatusResponse {
+    pub session_id: String,
+    pub user_id: String,
+    pub device_id: String,
+    pub expires_at: i64,
+    pub status: String,
 }

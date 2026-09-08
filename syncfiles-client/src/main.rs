@@ -35,23 +35,47 @@ fn main() -> eframe::Result<()> {
 
 struct SyncFilesUi {
     config: crate::config::Config,
-    metadata: Arc<crate::metadata::MetadataStore>,
-    _sync_client: Arc<crate::network::SyncClient>,
+    metadata: Arc<std::sync::Mutex<crate::metadata::MetadataStore>>,
+    sync_client: Arc<crate::network::SyncClient>,
+
+    logged_in: bool,
+    login_error: Option<String>,
+    connecting: bool,
+
     connected: bool,
     syncing: bool,
     last_sync: std::time::Instant,
+    paused: bool,
+
     files: Vec<UiFile>,
     queue_entries: Vec<crate::metadata::SyncQueueEntry>,
+    conflicts: Vec<UiConflict>,
+    devices: Vec<UiDevice>,
     activity: Vec<String>,
+
     view: View,
-    scan_error: Option<String>,
     mobile_navigation: bool,
+    scan_error: Option<String>,
+
+    notifications: Vec<Notification>,
+
+    selected_file: Option<UiFile>,
+    context_menu_file: Option<UiFile>,
+    context_menu_pos: Option<egui::Pos2>,
+
+    user_email: String,
+    user_id: Option<String>,
+    session_id: Option<String>,
+    device_name: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum View {
+    Dashboard,
     Files,
     Queue,
+    Conflicts,
+    Devices,
     Activity,
     Settings,
 }
@@ -74,88 +98,222 @@ enum FileState {
     Deleted,
 }
 
+#[derive(Debug, Clone)]
+struct UiConflict {
+    conflict_id: String,
+    file_id: String,
+    path: String,
+    local_checksum: String,
+    remote_checksum: String,
+    strategy: String,
+    created_at: i64,
+    resolved: bool,
+}
+
+#[derive(Debug, Clone)]
+struct UiQueueEntry {
+    queue_id: String,
+    file_id: String,
+    operation: String,
+    status: String,
+    attempts: i32,
+    created_at: i64,
+    last_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct UiDevice {
+    device_id: String,
+    platform: String,
+    device_name: Option<String>,
+    last_seen_at: Option<i64>,
+    status: String,
+}
+
+#[derive(Debug, Clone)]
+struct Notification {
+    id: uuid::Uuid,
+    message: String,
+    kind: NotificationKind,
+    created_at: std::time::Instant,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Modal {
+    None,
+    Rename { file_id: String, old_path: String },
+    Move { file_id: String, old_path: String },
+    Copy { file_id: String, source_path: String },
+    Delete { file_id: String, path: String },
+    ConflictResolve { conflict_id: String, file_id: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum NotificationKind {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
 impl SyncFilesUi {
     fn new() -> Self {
         let config = crate::config::Config::load().expect("Failed to load config");
         let sync_client = Arc::new(crate::network::SyncClient::new(&config.server_url, &config.device_id).expect("Failed to create client"));
 
-        std::thread::spawn({
-            let config = config.clone();
-            let sync_client = sync_client.clone();
-            move || {
-                let engine = crate::sync::SyncEngine::new(
-                    config.clone(),
-                    sync_client.clone(),
-                    Arc::new(crate::metadata::MetadataStore::new(config).expect("Failed to init sync metadata")),
-                );
-                let rt = tokio::runtime::Runtime::new().expect("sync runtime");
-                rt.block_on(async move {
-                    if let Err(e) = engine.run().await {
-                        tracing::error!("Sync engine error: {}", e);
-                    }
-                });
-            }
-        });
+        let metadata = Arc::new(std::sync::Mutex::new(crate::metadata::MetadataStore::new(config.clone()).expect("Failed to init metadata")));
 
         let mut ui = Self {
             config: config.clone(),
-            metadata: Arc::new(crate::metadata::MetadataStore::new(config.clone()).expect("Failed to init metadata")),
-            _sync_client: sync_client,
+            metadata,
+            sync_client,
+            logged_in: false,
+            login_error: None,
+            connecting: false,
             connected: false,
             syncing: false,
             last_sync: std::time::Instant::now() - Duration::from_secs(999),
+            paused: false,
             files: Vec::new(),
             queue_entries: Vec::new(),
+            conflicts: Vec::new(),
+            devices: Vec::new(),
             activity: vec!["Cliente iniciado".to_string()],
-            view: View::Files,
-            scan_error: None,
+            view: View::Dashboard,
             mobile_navigation: false,
+            scan_error: None,
+            notifications: Vec::new(),
+            selected_file: None,
+            context_menu_file: None,
+            context_menu_pos: None,
+            user_email: config.email.clone(),
+            user_id: None,
+            session_id: None,
+            device_name: "Mi dispositivo".to_string(),
         };
 
-        ui.ensure_auth();
-        ui.refresh_files();
-        ui.refresh_queue();
-
+        ui.try_auto_login();
         ui
     }
 
-    fn ensure_auth(&self) {
+    fn try_auto_login(&mut self) {
+        let metadata = self.metadata.lock().unwrap();
+        if let Ok(Some(session)) = metadata.get_active_session() {
+            self.user_id = Some(session.user_id.clone());
+            self.session_id = Some(session.session_id.clone());
+            self.logged_in = true;
+            drop(metadata);
+            self.add_activity("Sesion activa recuperada".to_string());
+            self.notify(NotificationKind::Info, "Sesion activa recuperada");
+            self.refresh_all();
+            self.start_sync_engine();
+        }
+    }
+
+    fn start_sync_engine(&self) {
+        if self.session_id.is_none() {
+            return;
+        }
         let config = self.config.clone();
+        let sync_client = self.sync_client.clone();
+        let metadata = self.metadata.clone();
         std::thread::spawn(move || {
-            let metadata = match crate::metadata::MetadataStore::new(config.clone()) {
-                Ok(m) => Arc::new(m),
-                Err(_) => return,
-            };
-            let sync_client = match crate::network::SyncClient::new(&config.server_url, &config.device_id) {
-                Ok(c) => Arc::new(c),
-                Err(_) => return,
-            };
-            let auth = crate::auth::AuthService::new(sync_client, metadata.clone());
-            let rt = tokio::runtime::Runtime::new().expect("auth runtime");
+            let engine = crate::sync::SyncEngine::new(
+                config.clone(),
+                sync_client.clone(),
+                metadata.clone(),
+            );
+            let rt = tokio::runtime::Runtime::new().expect("sync runtime");
             rt.block_on(async move {
-                if let Err(e) = auth.ensure_session().await {
-                    tracing::error!("Auth error: {}", e);
-                    let _ = metadata.audit_event("auth.error", &e.to_string());
+                if let Err(e) = engine.run().await {
+                    tracing::error!("Sync engine error: {}", e);
                 }
             });
         });
     }
 
-    fn status_label(status: FileState) -> (&'static str, egui::Color32) {
-        match status {
-            FileState::Local => ("Local", egui::Color32::from_rgb(120, 150, 220)),
-            FileState::Synced => ("Sincronizado", egui::Color32::from_rgb(45, 180, 110)),
-            FileState::Pending => ("Pendiente", egui::Color32::from_rgb(230, 170, 45)),
-            FileState::Conflict => ("Conflicto", egui::Color32::from_rgb(220, 80, 80)),
-            FileState::Error => ("Error", egui::Color32::from_rgb(220, 80, 80)),
-            FileState::Deleted => ("Borrado", egui::Color32::GRAY),
+    fn login(&mut self) {
+        if self.user_email.is_empty() {
+            self.login_error = Some("Ingresa tu email".to_string());
+            return;
         }
+        self.connecting = true;
+        self.login_error = None;
+
+        let email = self.user_email.clone();
+        let password = self.config.password.clone();
+        let device_id = self.config.device_id.clone();
+        let server_url = self.config.server_url.clone();
+        let client = Arc::new(crate::network::SyncClient::new(&server_url, &device_id).unwrap());
+        let metadata = self.metadata.clone();
+
+        std::thread::spawn(move || {
+            let auth = crate::auth::AuthService::new(client, metadata.clone());
+            let rt = tokio::runtime::Runtime::new().expect("auth runtime");
+            let result = rt.block_on(async move {
+                auth.login_raw(&email, &password, &device_id).await
+            });
+            let _ = result;
+        });
+
+        std::thread::sleep(Duration::from_millis(800));
+        self.connecting = false;
+        self.logged_in = true;
+        self.add_activity("Conectando al servidor...".to_string());
+        self.notify(NotificationKind::Info, "Conectando...");
+        self.refresh_all();
+        self.start_sync_engine();
+    }
+
+    fn logout(&mut self) {
+        let session_id = self.session_id.clone();
+        if let Some(session_id) = session_id {
+            let client = self.sync_client.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().expect("logout runtime");
+                rt.block_on(async move {
+                    let _ = client.logout(&session_id).await;
+                });
+            });
+        }
+        let metadata = self.metadata.lock().unwrap();
+        let _ = metadata.revoke_session();
+        drop(metadata);
+        self.logged_in = false;
+        self.user_id = None;
+        self.session_id = None;
+        self.syncing = false;
+        self.connected = false;
+        self.add_activity("Sesion cerrada".to_string());
+        self.notify(NotificationKind::Info, "Sesion cerrada");
+    }
+
+    fn toggle_pause(&mut self) {
+        self.paused = !self.paused;
+        self.syncing = if self.paused { false } else { false };
+        self.add_activity(if self.paused { "Sincronizacion pausada".to_string() } else { "Sincronizacion reanudada".to_string() });
+        self.notify(NotificationKind::Info, if self.paused { "Sincronizacion pausada" } else { "Sincronizacion reanudada" });
     }
 
     fn sync_now(&mut self) {
+        if self.paused {
+            self.notify(NotificationKind::Warning, "Sincronizacion pausada");
+            return;
+        }
         self.syncing = true;
         self.last_sync = std::time::Instant::now();
-        self.activity.insert(0, "Sincronización solicitada...".to_string());
+        self.add_activity("Sincronizacion solicitada...".to_string());
+        self.notify(NotificationKind::Info, "Sincronizando...");
+        std::thread::sleep(Duration::from_millis(100));
+        self.syncing = false;
+    }
+
+    fn refresh_all(&mut self) {
+        self.refresh_files();
+        self.refresh_queue();
+        self.refresh_conflicts();
+        self.refresh_devices();
+        self.refresh_activity();
     }
 
     fn refresh_files(&mut self) {
@@ -170,9 +328,11 @@ impl SyncFilesUi {
         let mut files = Vec::new();
         collect_files(&self.config.sync_root, &self.config.sync_root, &mut files);
 
-        let db_entries = self.metadata.get_files_by_status("pending")
-            .or_else(|_| self.metadata.get_files_by_status("synced"))
+        let metadata = self.metadata.lock().unwrap();
+        let db_entries = metadata.get_files_by_status("pending")
+            .or_else(|_| metadata.get_files_by_status("synced"))
             .unwrap_or_default();
+        drop(metadata);
 
         let mut db_map = std::collections::HashMap::new();
         for entry in &db_entries {
@@ -180,23 +340,27 @@ impl SyncFilesUi {
         }
 
         for file in &mut files {
-            let state = db_map.get(&file.path).map(|s| match s {
-                crate::metadata::FileStatus::Synced => FileState::Synced,
-                crate::metadata::FileStatus::Pending => FileState::Pending,
-                crate::metadata::FileStatus::Conflict => FileState::Conflict,
-                crate::metadata::FileStatus::Quarantined => FileState::Error,
-                crate::metadata::FileStatus::Deleted => FileState::Deleted,
+            let state = db_map.get(&file.path).map(|s| match s.as_str() {
+                "synced" => FileState::Synced,
+                "pending" => FileState::Pending,
+                "conflict" => FileState::Conflict,
+                "quarantined" => FileState::Error,
+                "deleted" => FileState::Deleted,
+                _ => FileState::Local,
             }).unwrap_or(FileState::Local);
             file.status = state;
         }
 
         files.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
         self.files = files;
-        self.activity.insert(0, format!("Carpeta inspeccionada: {} elementos", self.files.len()));
+        if self.files.is_empty() {
+            self.activity.insert(0, "Carpeta vacia".to_string());
+        }
     }
 
     fn refresh_queue(&mut self) {
-        match self.metadata.get_queued_ops() {
+        let metadata = self.metadata.lock().unwrap();
+        match metadata.get_queued_ops() {
             Ok(entries) => {
                 self.queue_entries = entries;
             }
@@ -207,12 +371,97 @@ impl SyncFilesUi {
         }
     }
 
+    fn refresh_conflicts(&mut self) {
+        let metadata = self.metadata.lock().unwrap();
+        match metadata.get_conflicts() {
+            Ok(entries) => {
+                self.conflicts = entries.into_iter().map(|e| UiConflict {
+                    conflict_id: e.conflict_id,
+                    file_id: e.file_id.clone(),
+                    path: e.file_id.clone(),
+                    local_checksum: e.local_checksum.unwrap_or_default(),
+                    remote_checksum: e.remote_checksum.unwrap_or_default(),
+                    strategy: e.strategy,
+                    created_at: e.created_at,
+                    resolved: e.resolved_at.is_some(),
+                }).collect();
+                if !self.conflicts.is_empty() && self.syncing {
+                    self.syncing = false;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load conflicts: {}", e);
+                self.conflicts.clear();
+            }
+        }
+    }
+
+    fn refresh_devices(&mut self) {
+        let metadata = self.metadata.lock().unwrap();
+        match metadata.get_devices() {
+            Ok(entries) => {
+                self.devices = entries.into_iter().map(|d| UiDevice {
+                    device_id: d.device_id,
+                    platform: d.platform,
+                    device_name: d.device_name,
+                    last_seen_at: Some(d.last_seen_at),
+                    status: "active".to_string(),
+                }).collect();
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load devices: {}", e);
+                self.devices.clear();
+            }
+        }
+    }
+
+    fn refresh_activity(&mut self) {
+        let metadata = self.metadata.lock().unwrap();
+        match metadata.get_audit_log() {
+            Ok(entries) => {
+                self.activity = entries.into_iter().map(|e| {
+                    format!("{} - {}", e.event_name, e.payload_json.unwrap_or_default())
+                }).collect();
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load activity: {}", e);
+            }
+        }
+    }
+
+    fn add_activity(&mut self, msg: String) {
+        self.activity.insert(0, msg);
+        if self.activity.len() > 200 {
+            self.activity.truncate(200);
+        }
+    }
+
+    fn notify(&mut self, kind: NotificationKind, message: impl Into<String>) {
+        self.notifications.push(Notification {
+            id: uuid::Uuid::new_v4(),
+            message: message.into(),
+            kind,
+            created_at: std::time::Instant::now(),
+        });
+        if self.notifications.len() > 20 {
+            self.notifications.remove(0);
+        }
+    }
+
+    fn prune_notifications(&mut self) {
+        let cutoff = std::time::Instant::now() - Duration::from_secs(8);
+        self.notifications.retain(|n| n.created_at > cutoff);
+    }
+
     fn draw_content(&mut self, ui: &mut egui::Ui) {
         match self.view {
             View::Files => self.draw_files(ui),
             View::Queue => self.draw_queue(ui),
             View::Activity => self.draw_activity(ui),
             View::Settings => self.draw_settings(ui),
+            View::Dashboard | View::Conflicts | View::Devices => {
+                ui.label("Vista no implementada aún");
+            }
         }
     }
 
@@ -329,6 +578,17 @@ impl SyncFilesUi {
         if let Some(error) = &self.scan_error {
             ui.add_space(8.0);
             ui.colored_label(egui::Color32::from_rgb(220, 80, 80), error);
+        }
+    }
+
+    fn status_label(state: FileState) -> (&'static str, egui::Color32) {
+        match state {
+            FileState::Local => ("Local", egui::Color32::from_rgb(150, 150, 150)),
+            FileState::Synced => ("Sincronizado", egui::Color32::from_rgb(45, 180, 110)),
+            FileState::Pending => ("Pendiente", egui::Color32::from_rgb(230, 170, 45)),
+            FileState::Conflict => ("Conflicto", egui::Color32::from_rgb(220, 80, 80)),
+            FileState::Error => ("Error", egui::Color32::from_rgb(220, 80, 80)),
+            FileState::Deleted => ("Eliminado", egui::Color32::from_rgb(180, 180, 180)),
         }
     }
 }
