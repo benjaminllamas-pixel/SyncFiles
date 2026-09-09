@@ -115,6 +115,8 @@ impl SyncEngine {
             }
 
             let content_bytes = std::fs::read(&local_path).unwrap_or_default();
+            let checksum = crate::metadata::MetadataStore::hash_file_at(&local_path)
+                .unwrap_or_else(|_| file.checksum.clone());
             let content_b64 = BASE64.encode(&content_bytes);
             let payload = UploadRequest {
                 session_id: session.session_id.clone(),
@@ -122,8 +124,8 @@ impl SyncEngine {
                 file_id: file.file_id.clone(),
                 relative_path: file.relative_path.clone(),
                 path_hash: file.path_hash.clone(),
-                checksum: file.checksum.clone(),
-                size_bytes: file.size_bytes,
+                checksum: checksum.clone(),
+                size_bytes: content_bytes.len() as i64,
                 modified_at: file.modified_at,
                 idempotency_key: uuid::Uuid::new_v4().to_string(),
                 content: content_b64,
@@ -152,8 +154,8 @@ impl SyncEngine {
                             device_id: file.device_id.clone(),
                             relative_path: file.relative_path.clone(),
                             path_hash: file.path_hash.clone(),
-                            checksum: file.checksum.clone(),
-                            size_bytes: file.size_bytes,
+                            checksum: checksum.clone(),
+                            size_bytes: content_bytes.len() as i64,
                             modified_at: file.modified_at,
                             synced_at: Some(Utc::now().timestamp_millis()),
                             status: "synced".to_string(),
@@ -176,8 +178,8 @@ impl SyncEngine {
                             device_id: file.device_id.clone(),
                             relative_path: file.relative_path.clone(),
                             path_hash: file.path_hash.clone(),
-                            checksum: file.checksum.clone(),
-                            size_bytes: file.size_bytes,
+                            checksum: payload.checksum.clone(),
+                            size_bytes: content_bytes.len() as i64,
                             modified_at: file.modified_at,
                             synced_at: None,
                             status: "conflict".to_string(),

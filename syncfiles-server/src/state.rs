@@ -1,5 +1,7 @@
+use std::str::FromStr;
 use std::sync::Arc;
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqliteConnectOptions;
 use crate::config::Config;
 use crate::db;
 use crate::storage::{StorageProvider, LocalDiskStorageProvider};
@@ -23,9 +25,15 @@ impl AppState {
                 }
             }
         }
+        let mut connect_options = SqliteConnectOptions::from_str(&config.database_url)?;
+        if let Some(path) = config.database_url.strip_prefix("sqlite:") {
+            if path != ":memory:" && !std::path::Path::new(path).exists() {
+                connect_options = connect_options.create_if_missing(true);
+            }
+        }
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(5)
-            .connect(&config.database_url)
+            .connect_with(connect_options)
             .await?;
 
         db::init_db(&pool).await?;

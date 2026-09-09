@@ -252,6 +252,11 @@ impl MetadataStore {
         Ok(compute_checksum(&content))
     }
 
+    pub fn hash_file_at(path: &Path) -> Result<String> {
+        let content = std::fs::read(path)?;
+        Ok(compute_checksum(&content))
+    }
+
     pub fn path_hash(&self, path: &str) -> String {
         compute_path_hash(path)
     }

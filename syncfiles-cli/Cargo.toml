@@ -1,0 +1,16 @@
+[package]
+name = "syncfiles-cli"
+version = "0.1.0"
+edition = "2021"
+description = "SyncFiles V1 CLI test client"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+anyhow = "1"
+base64 = "0.21"
+syncfiles-models = { path = "../syncfiles-models" }

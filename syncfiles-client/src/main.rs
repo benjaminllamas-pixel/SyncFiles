@@ -49,6 +49,7 @@ struct SyncFilesUi {
     paused: bool,
 
     watcher: Option<crate::watcher::FileWatcher>,
+    watcher_handle: Option<notify::RecommendedWatcher>,
 
     files: Vec<UiFile>,
     queue_entries: Vec<crate::metadata::SyncQueueEntry>,
@@ -195,6 +196,7 @@ impl SyncFilesUi {
             session_id: None,
             device_name: "Mi dispositivo".to_string(),
             watcher: None,
+            watcher_handle: None,
         };
 
         ui.try_auto_login();
@@ -251,7 +253,8 @@ impl SyncFilesUi {
                     tracing::warn!("Failed to enqueue watcher change: {}", e);
                 }
             }));
-            if let Ok(_watcher) = watcher.start() {
+            if let Ok(watcher_handle) = watcher.start() {
+                self.watcher_handle = Some(watcher_handle);
                 self.watcher = Some(watcher);
                 self.add_activity("File watcher iniciado".to_string());
             }

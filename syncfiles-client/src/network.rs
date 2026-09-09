@@ -42,6 +42,7 @@ impl SyncClient {
         body: Option<serde_json::Value>,
         auth_token: Option<&str>,
     ) -> Result<T> {
+        let path = path.trim_start_matches('/');
         let url = format!("{}/{}", self.base_url, path);
         let mut req = self.http.request(method.clone(), &url);
 
@@ -95,7 +96,7 @@ impl SyncClient {
 
     pub async fn upload(&self, req: &UploadRequest) -> Result<ApiResponse<()>> {
         let payload = serde_json::to_value(req)?;
-        let url = format!("{}/{}", self.base_url, "/api/v1/sync/upload");
+        let url = format!("{}/api/v1/sync/upload", self.base_url);
         let resp = self.http
             .post(&url)
             .json(&payload)

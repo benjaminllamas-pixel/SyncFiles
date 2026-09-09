@@ -347,7 +347,14 @@ pub async fn rename_handler(
         Err(_) => return Ok(bad_request("INVALID_PATH", "Ruta relativa inválida".to_string())),
     };
 
-    if let Err(e) = state.storage.rename(&session.user_id, &req.old_path, &new_normalized).await {
+    let file = match crate::db::get_file_by_id_for_user(&state.pool, &session.user_id, &req.file_id).await {
+        Ok(Some(f)) => f,
+        Ok(None) => return Ok(bad_request("NOT_FOUND", "Archivo no encontrado".to_string())),
+        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+    };
+    let old_path = if req.old_path.is_empty() { file.relative_path.clone() } else { req.old_path.clone() };
+
+    if let Err(e) = state.storage.rename(&session.user_id, &old_path, &new_normalized).await {
         return Ok(bad_request("STORAGE_ERROR", e.to_string()));
     }
 
@@ -384,7 +391,14 @@ pub async fn move_handler(
         Err(_) => return Ok(bad_request("INVALID_PATH", "Ruta relativa inválida".to_string())),
     };
 
-    if let Err(e) = state.storage.rename(&session.user_id, &req.old_path, &new_normalized).await {
+    let file = match crate::db::get_file_by_id_for_user(&state.pool, &session.user_id, &req.file_id).await {
+        Ok(Some(f)) => f,
+        Ok(None) => return Ok(bad_request("NOT_FOUND", "Archivo no encontrado".to_string())),
+        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+    };
+    let old_path = if req.old_path.is_empty() { file.relative_path.clone() } else { req.old_path.clone() };
+
+    if let Err(e) = state.storage.rename(&session.user_id, &old_path, &new_normalized).await {
         return Ok(bad_request("STORAGE_ERROR", e.to_string()));
     }
 

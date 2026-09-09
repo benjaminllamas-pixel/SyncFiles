@@ -2,6 +2,7 @@
 /syncfiles-client/target/
 /syncfiles-server/target/
 /syncfiles-models/target/
+/syncfiles-cli/target/
 
 # Env files
 **/.env

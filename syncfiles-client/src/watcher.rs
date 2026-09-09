@@ -20,6 +20,8 @@ impl FileWatcher {
 
     pub fn start(&self) -> Result<RecommendedWatcher> {
         let on_change = self.on_change.clone();
+        let canonical_root = std::fs::canonicalize(&self.root).unwrap_or_else(|_| self.root.clone());
+        let root_str = canonical_root.to_str().unwrap_or_default().to_string();
         let root = self.root.clone();
         let debounce_state = Arc::new(Mutex::new(std::collections::HashMap::<String, Instant>::new()));
         let debounce_state_inner = debounce_state.clone();
@@ -30,7 +32,10 @@ impl FileWatcher {
                     Ok(event) => {
                         for path in &event.paths {
                             if let Some(path_str) = path.to_str() {
-                                if !path_str.starts_with(root.to_str().unwrap_or_default()) {
+                                let canonical_path = std::fs::canonicalize(path)
+                                    .map(|p| p.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|_| path_str.to_string());
+                                if !canonical_path.starts_with(&root_str) {
                                     continue;
                                 }
                                 let now = Instant::now();
@@ -42,7 +47,11 @@ impl FileWatcher {
                                 map.insert(path_str.to_string(), now);
                                 drop(map);
                                 info!("Cambio detectado: {}", path_str);
-                                (on_change)(path_str.to_string());
+                                let relative = canonical_path
+                                    .strip_prefix(&root_str)
+                                    .map(|p| p.trim_start_matches('/').to_string())
+                                    .unwrap_or(canonical_path.clone());
+                                (on_change)(relative);
                             }
                         }
                     }
