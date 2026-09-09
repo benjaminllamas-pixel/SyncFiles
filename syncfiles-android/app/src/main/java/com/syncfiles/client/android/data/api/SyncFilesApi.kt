@@ -97,6 +97,14 @@ data class ResolveConflictRequest(
     val new_name: String?
 )
 
+data class DownloadRequest(
+    val session_id: String,
+    val device_id: String,
+    val file_id: String,
+    val path_hash: String,
+    val idempotency_key: String
+)
+
 data class DownloadResponse(
     val accepted: Boolean,
     val status: String,
@@ -123,7 +131,7 @@ interface SyncFilesApi {
     suspend fun upload(@Body request: UploadRequest): ApiResponse<Unit>
 
     @POST("sync/download")
-    suspend fun download(@Body request: DeleteRequest): DownloadResponse
+    suspend fun download(@Body request: DownloadRequest): DownloadResponse
 
     @POST("sync/delete")
     suspend fun delete(@Body request: DeleteRequest): ApiResponse<Unit>

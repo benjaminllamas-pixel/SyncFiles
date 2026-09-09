@@ -95,7 +95,42 @@ impl SyncClient {
 
     pub async fn upload(&self, req: &UploadRequest) -> Result<ApiResponse<()>> {
         let payload = serde_json::to_value(req)?;
-        self.request(reqwest::Method::POST, "/api/v1/sync/upload", Some(payload), Some(&req.session_id)).await
+        let url = format!("{}/{}", self.base_url, "/api/v1/sync/upload");
+        let resp = self.http
+            .post(&url)
+            .json(&payload)
+            .bearer_auth(&req.session_id)
+            .send()
+            .await
+            .with_context(|| format!("Failed to POST {}", url))?;
+
+        let status = resp.status();
+        let text = resp.text().await?;
+
+        if status == StatusCode::CONFLICT {
+            let api_err: ApiError = serde_json::from_str(&text).unwrap_or(ApiError {
+                code: "CONFLICT".to_string(),
+                message: text.clone(),
+                retryable: false,
+                request_id: self.request_id(),
+            });
+            return Err(anyhow!("CONFLICT: {} - {}", api_err.code, api_err.message));
+        }
+
+        if !status.is_success() {
+            let api_err: ApiError = serde_json::from_str(&text).unwrap_or(ApiError {
+                code: status.as_str().to_string(),
+                message: text.clone(),
+                retryable: matches!(status, StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS | StatusCode::INTERNAL_SERVER_ERROR | StatusCode::BAD_GATEWAY | StatusCode::SERVICE_UNAVAILABLE | StatusCode::GATEWAY_TIMEOUT),
+                request_id: self.request_id(),
+            });
+            return Err(anyhow!("API error {}: {} - retryable: {}", api_err.code, api_err.message, api_err.retryable));
+        }
+
+        let result: ApiResponse<()> = serde_json::from_str(&text)
+            .with_context(|| format!("Failed to parse response from /api/v1/sync/upload"))?;
+        info!("POST /api/v1/sync/upload -> OK");
+        Ok(result)
     }
 
     pub async fn download(&self, session_id: &str, file_id: &str, path_hash: &str) -> Result<DownloadResponse> {

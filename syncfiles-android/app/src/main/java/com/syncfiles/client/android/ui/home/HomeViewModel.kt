@@ -186,8 +186,12 @@ class HomeViewModel(
 
     private fun resolveRootFile(uri: android.net.Uri): File {
         val document = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, uri)
-        val path = document?.uri?.path ?: throw IllegalStateException("SAF path unavailable")
-        return File(path)
+        val path = document?.uri?.path
+        return if (path.isNullOrEmpty()) {
+            File(appContext.filesDir, "sync_root").apply { mkdirs() }
+        } else {
+            File(path)
+        }
     }
 
     fun logout(onLoggedOut: () -> Unit) {

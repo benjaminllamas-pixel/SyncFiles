@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::state::AppState;
-use crate::models::{ApiError, ApiResponse, ChangeEntry, DiffResponse, DownloadResponse, FileEntry, LoginRequest, Session, DiffRequest, UploadRequest, DeleteRequest, DownloadRequest, RenameRequest, MoveRequest, CopyRequest, ResolveConflictRequest, uuid_str, now_ms, compute_path_hash};
+use crate::models::{ApiError, ApiResponse, ChangeEntry, DiffResponse, DownloadResponse, FileEntry, LoginRequest, Session, DiffRequest, UploadRequest, DeleteRequest, DownloadRequest, RenameRequest, MoveRequest, CopyRequest, ResolveConflictRequest, Conflict, uuid_str, now_ms, compute_path_hash};
 use crate::auth;
 use crate::storage::normalize_relative_path;
 
@@ -157,6 +157,57 @@ pub async fn upload_handler(
     let expected_path_hash = compute_path_hash(&normalized_relative_path);
     if req.path_hash != expected_path_hash {
         return Ok(bad_request("INVALID_PATH_HASH", "path_hash no coincide con relative_path".to_string()));
+    }
+
+    let existing: Option<FileEntry> = match crate::db::get_files_by_path_hash(&state.pool, &session.user_id, &req.path_hash).await {
+        Ok(Some(f)) => Some(f),
+        Ok(None) => None,
+        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+    };
+
+    if let Some(ref existing_file) = existing {
+        if existing_file.checksum != req.checksum && existing_file.status != "deleted" {
+            let conflict_id = uuid_str();
+            let preserved_path = format!(
+                "{}.conflict_{}_{}",
+                existing_file.relative_path, conflict_id, now_ms()
+            );
+            let _ = state.storage.copy(&session.user_id, &existing_file.relative_path, &preserved_path).await;
+
+            let conflict = Conflict {
+                conflict_id: conflict_id.clone(),
+                file_id: existing_file.file_id.clone(),
+                user_id: session.user_id.clone(),
+                device_local: Some(existing_file.device_id.clone()),
+                device_remote: Some(req.device_id.clone()),
+                local_checksum: Some(existing_file.checksum.clone()),
+                remote_checksum: Some(req.checksum.clone()),
+                conflict_type: "checksum_mismatch".to_string(),
+                strategy: "last_write_wins".to_string(),
+                created_at: now_ms(),
+                resolved_at: None,
+                resolved_by: None,
+            };
+            if let Err(e) = crate::db::mark_conflict(&state.pool, &conflict).await {
+                warn!("No se pudo registrar conflicto: {}", e);
+            }
+
+            return Ok(HttpResponse::Conflict().json(ApiResponse {
+                accepted: false,
+                status: "conflict".to_string(),
+                server_seq: Some(state.next_server_seq()),
+                data: Some(serde_json::json!({
+                    "conflict_id": conflict_id,
+                    "alternative_preserved_path": preserved_path,
+                })),
+                error: Some(ApiError {
+                    code: "CONFLICT".to_string(),
+                    message: "Conflicto de checksum detectado".to_string(),
+                    retryable: false,
+                    request_id: uuid_str(),
+                }),
+            }));
+        }
     }
 
     let file_id = if req.file_id.is_empty() {

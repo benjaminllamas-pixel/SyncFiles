@@ -165,6 +165,23 @@ impl MetadataStore {
         Ok(())
     }
 
+    pub fn enqueue(&self, path: &str, operation: &str, payload: Option<String>) -> Result<()> {
+        let path_hash = compute_path_hash(path);
+        let file_id = uuid::Uuid::new_v4().to_string();
+        let queue_id = uuid::Uuid::new_v4().to_string();
+        let idempotency_key = uuid::Uuid::new_v4().to_string();
+        let now = Utc::now().timestamp_millis();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO files (file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at) VALUES (?1, ?, ?, ?2, ?3, '', 0, ?4, NULL, 'pending', 0, NULL)",
+            params![file_id, path, path_hash, now],
+        )?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO sync_queue (queue_id, file_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error) VALUES (?1, ?2, ?3, 'queued', 0, ?4, ?5, ?6, ?6, NULL)",
+            params![queue_id, file_id, operation, idempotency_key, payload, now],
+        )?;
+        Ok(())
+    }
+
     pub fn get_queued_ops(&self) -> Result<Vec<SyncQueueEntry>> {
         let mut stmt = self.conn.prepare("SELECT queue_id, file_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error FROM sync_queue WHERE status IN ('queued', 'retry') ORDER BY created_at LIMIT 50")?;
         let rows = stmt.query_map([], |row| {

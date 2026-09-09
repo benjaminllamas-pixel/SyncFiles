@@ -165,9 +165,33 @@ impl SyncEngine {
                     }
                 }
                 Err(e) => {
-                    error!("Error subiendo {}: {}", file.relative_path, e);
-                    let store = self.store.lock().unwrap();
-                    store.update_queue_status(&queue_id, "retry", Some(&e.to_string()))?;
+                    let err_str = e.to_string();
+                    if err_str.starts_with("CONFLICT:") {
+                        let conflict_id = uuid::Uuid::new_v4().to_string();
+                        let store = self.store.lock().unwrap();
+                        store.mark_conflict(&conflict_id, &file.file_id, &file.checksum, &payload.checksum)?;
+                        store.upsert_file(&FileEntry {
+                            file_id: file.file_id.clone(),
+                            user_id: file.user_id.clone(),
+                            device_id: file.device_id.clone(),
+                            relative_path: file.relative_path.clone(),
+                            path_hash: file.path_hash.clone(),
+                            checksum: file.checksum.clone(),
+                            size_bytes: file.size_bytes,
+                            modified_at: file.modified_at,
+                            synced_at: None,
+                            status: "conflict".to_string(),
+                            last_sync_version: file.last_sync_version,
+                            deleted_at: file.deleted_at,
+                            content: None,
+                        })?;
+                        store.update_queue_status(&queue_id, "retry", Some(&err_str))?;
+                        warn!("Conflicto detectado en {}: {}", file.relative_path, err_str);
+                    } else {
+                        error!("Error subiendo {}: {}", file.relative_path, e);
+                        let store = self.store.lock().unwrap();
+                        store.update_queue_status(&queue_id, "retry", Some(&err_str))?;
+                    }
                 }
             }
         }

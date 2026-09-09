@@ -1,6 +1,7 @@
 # Rust build artifacts
 /syncfiles-client/target/
 /syncfiles-server/target/
+/syncfiles-models/target/
 
 # Env files
 **/.env

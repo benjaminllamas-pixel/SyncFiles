@@ -1,0 +1,11 @@
+[package]
+name = "syncfiles-models"
+version = "0.1.0"
+edition = "2021"
+description = "Shared models and contracts for SyncFiles"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+sha2 = "0.10"

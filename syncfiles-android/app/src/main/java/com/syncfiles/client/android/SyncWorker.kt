@@ -2,6 +2,7 @@ package com.syncfiles.client.android
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import androidx.work.CoroutineWorker
@@ -45,7 +46,7 @@ class SyncWorker(
                             session_id = session.sessionId,
                             device_id = session.deviceId,
                             file_id = entry.fileId,
-                            path_hash = entry.idempotencyKey,
+                            path_hash = Hashing.sha256Hex(entry.relativePath),
                             idempotency_key = entry.idempotencyKey
                         )
                     )
@@ -74,14 +75,14 @@ class SyncWorker(
             return
         }
         val content = file.readBytes()
-        val text = String(content, Charsets.UTF_8)
+        val text = Base64.encodeToString(content, Base64.NO_WRAP)
         val response: ApiResponse<Unit> = api.upload(
             UploadRequest(
                 session_id = session.sessionId,
                 device_id = session.deviceId,
                 file_id = entry.fileId,
                 relative_path = entry.relativePath,
-                path_hash = entry.idempotencyKey,
+                path_hash = Hashing.sha256Hex(entry.relativePath),
                 checksum = Hashing.sha256Hex(content),
                 size_bytes = content.size.toLong(),
                 modified_at = System.currentTimeMillis(),
@@ -97,13 +98,18 @@ class SyncWorker(
     private fun localRoot(): File {
         val uriString = sessionStore.getSyncRootUri()
         if (!uriString.isNullOrEmpty()) {
-            return try {
+            try {
                 val uri = Uri.parse(uriString)
                 val doc = DocumentFile.fromTreeUri(applicationContext, uri)
-                val path = doc?.uri?.path ?: throw IllegalStateException("SAF path unavailable")
-                File(path)
+                val path = doc?.uri?.path
+                if (!path.isNullOrEmpty()) {
+                    val file = File(path)
+                    if (file.exists() || file.mkdirs()) {
+                        return file
+                    }
+                }
             } catch (_: Exception) {
-                File(applicationContext.filesDir, "sync_root").apply { mkdirs() }
+                // fallback below
             }
         }
         return File(applicationContext.filesDir, "sync_root").apply { mkdirs() }

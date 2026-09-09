@@ -41,11 +41,14 @@ struct SyncFilesUi {
     logged_in: bool,
     login_error: Option<String>,
     connecting: bool,
+    login_result: Arc<std::sync::Mutex<Option<Result<(), String>>>>,
 
     connected: bool,
     syncing: bool,
     last_sync: std::time::Instant,
     paused: bool,
+
+    watcher: Option<crate::watcher::FileWatcher>,
 
     files: Vec<UiFile>,
     queue_entries: Vec<crate::metadata::SyncQueueEntry>,
@@ -170,6 +173,7 @@ impl SyncFilesUi {
             logged_in: false,
             login_error: None,
             connecting: false,
+            login_result: Arc::new(std::sync::Mutex::new(None)),
             connected: false,
             syncing: false,
             last_sync: std::time::Instant::now() - Duration::from_secs(999),
@@ -190,6 +194,7 @@ impl SyncFilesUi {
             user_id: None,
             session_id: None,
             device_name: "Mi dispositivo".to_string(),
+            watcher: None,
         };
 
         ui.try_auto_login();
@@ -207,6 +212,7 @@ impl SyncFilesUi {
             self.notify(NotificationKind::Info, "Sesion activa recuperada");
             self.refresh_all();
             self.start_sync_engine();
+            self.start_watcher();
         }
     }
 
@@ -232,13 +238,37 @@ impl SyncFilesUi {
         });
     }
 
+    fn start_watcher(&mut self) {
+        if self.watcher.is_some() {
+            return;
+        }
+        if self.config.sync_root.is_dir() {
+            let metadata = self.metadata.clone();
+            let root = self.config.sync_root.clone();
+            let watcher = crate::watcher::FileWatcher::new(root, Arc::new(move |path_str| {
+                let mut store = metadata.lock().unwrap();
+                if let Err(e) = store.enqueue(&path_str, "pending", None) {
+                    tracing::warn!("Failed to enqueue watcher change: {}", e);
+                }
+            }));
+            if let Ok(_watcher) = watcher.start() {
+                self.watcher = Some(watcher);
+                self.add_activity("File watcher iniciado".to_string());
+            }
+        }
+    }
+
     fn login(&mut self) {
         if self.user_email.is_empty() {
             self.login_error = Some("Ingresa tu email".to_string());
             return;
         }
+        if self.connecting {
+            return;
+        }
         self.connecting = true;
         self.login_error = None;
+        *self.login_result.lock().unwrap() = None;
 
         let email = self.user_email.clone();
         let password = self.config.password.clone();
@@ -246,6 +276,7 @@ impl SyncFilesUi {
         let server_url = self.config.server_url.clone();
         let client = Arc::new(crate::network::SyncClient::new(&server_url, &device_id).unwrap());
         let metadata = self.metadata.clone();
+        let login_result = self.login_result.clone();
 
         std::thread::spawn(move || {
             let auth = crate::auth::AuthService::new(client, metadata.clone());
@@ -253,16 +284,8 @@ impl SyncFilesUi {
             let result = rt.block_on(async move {
                 auth.login_raw(&email, &password, &device_id).await
             });
-            let _ = result;
+            *login_result.lock().unwrap() = Some(result.map(|_| ()).map_err(|e| e.to_string()));
         });
-
-        std::thread::sleep(Duration::from_millis(800));
-        self.connecting = false;
-        self.logged_in = true;
-        self.add_activity("Conectando al servidor...".to_string());
-        self.notify(NotificationKind::Info, "Conectando...");
-        self.refresh_all();
-        self.start_sync_engine();
     }
 
     fn logout(&mut self) {
@@ -290,7 +313,7 @@ impl SyncFilesUi {
 
     fn toggle_pause(&mut self) {
         self.paused = !self.paused;
-        self.syncing = if self.paused { false } else { false };
+        self.syncing = !self.paused;
         self.add_activity(if self.paused { "Sincronizacion pausada".to_string() } else { "Sincronizacion reanudada".to_string() });
         self.notify(NotificationKind::Info, if self.paused { "Sincronizacion pausada" } else { "Sincronizacion reanudada" });
     }
@@ -457,12 +480,93 @@ impl SyncFilesUi {
         match self.view {
             View::Files => self.draw_files(ui),
             View::Queue => self.draw_queue(ui),
+            View::Conflicts => self.draw_conflicts(ui),
             View::Activity => self.draw_activity(ui),
             View::Settings => self.draw_settings(ui),
-            View::Dashboard | View::Conflicts | View::Devices => {
+            View::Dashboard | View::Devices => {
                 ui.label("Vista no implementada aún");
             }
         }
+    }
+
+    fn draw_conflicts(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Conflictos");
+        ui.label("Resuelve conflictos de sincronización.");
+        ui.add_space(16.0);
+        if self.conflicts.is_empty() {
+            ui.label("No hay conflictos pendientes.");
+            return;
+        }
+        let conflicts: Vec<_> = self.conflicts.iter().cloned().collect();
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            egui::Grid::new("conflicts").striped(true).show(ui, |ui| {
+                ui.strong("Archivo");
+                ui.strong("Local");
+                ui.strong("Remoto");
+                ui.strong("Estado");
+                ui.end_row();
+                for conflict in &conflicts {
+                    ui.label(&conflict.path);
+                    ui.label(&conflict.local_checksum[..8.min(conflict.local_checksum.len())]);
+                    ui.label(&conflict.remote_checksum[..8.min(conflict.remote_checksum.len())]);
+                    ui.label(if conflict.resolved { "Resuelto" } else { "Pendiente" });
+                    ui.end_row();
+                    if !conflict.resolved {
+                        let conflict_id = conflict.conflict_id.clone();
+                        ui.horizontal(|ui| {
+                            if ui.button("Mantener local").clicked() {
+                                self.resolve_conflict(&conflict_id, "keep_local");
+                            }
+                            if ui.button("Mantener remoto").clicked() {
+                                self.resolve_conflict(&conflict_id, "keep_remote");
+                            }
+                        });
+                        ui.end_row();
+                    }
+                }
+            });
+        });
+        ui.add_space(16.0);
+        if ui.button("Refrescar conflictos").clicked() {
+            self.refresh_conflicts();
+        }
+    }
+
+    fn resolve_conflict(&mut self, conflict_id: &str, decision: &str) {
+        let session_id = match &self.session_id {
+            Some(s) => s.clone(),
+            None => return,
+        };
+        let device_id = self.config.device_id.clone();
+        let client = self.sync_client.clone();
+        let metadata = self.metadata.clone();
+        let conflict_id = conflict_id.to_string();
+        let decision = decision.to_string();
+        let conflict_id_for_log = conflict_id.clone();
+        let decision_for_log = decision.clone();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("resolve runtime");
+            rt.block_on(async move {
+                let req = syncfiles_models::ResolveConflictRequest {
+                    session_id: session_id.clone(),
+                    device_id: device_id.clone(),
+                    conflict_id: conflict_id.clone(),
+                    decision: decision.clone(),
+                    preserve_alternative: true,
+                    new_name: None,
+                };
+                if let Err(e) = client.resolve_conflict(&session_id, &req).await {
+                    tracing::error!("Error al resolver conflicto: {}", e);
+                } else {
+                    let store = metadata.lock().unwrap();
+                    let _ = store.resolve_conflict(&conflict_id, "ui");
+                }
+            });
+        });
+        self.add_activity(format!("Conflicto resuelto: {} -> {}", conflict_id_for_log, decision_for_log));
+        self.notify(NotificationKind::Success, "Conflicto resuelto");
+        self.refresh_conflicts();
     }
 
     fn draw_files(&mut self, ui: &mut egui::Ui) {
@@ -595,6 +699,36 @@ impl SyncFilesUi {
 
 impl eframe::App for SyncFilesUi {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.connecting {
+            let login_result = self.login_result.lock().unwrap().take();
+            if let Some(result) = login_result {
+                self.connecting = false;
+                match result {
+                    Ok(_) => {
+                        let metadata = self.metadata.lock().unwrap();
+                        let session_data = metadata.get_active_session()
+                            .ok()
+                            .flatten()
+                            .map(|s| (s.user_id.clone(), s.session_id.clone()));
+                        drop(metadata);
+                        if let Some((user_id, session_id)) = session_data {
+                            self.user_id = Some(user_id);
+                            self.session_id = Some(session_id);
+                            self.logged_in = true;
+                            self.add_activity("Login exitoso".to_string());
+                            self.notify(NotificationKind::Success, "Sesion iniciada");
+                            self.start_sync_engine();
+                            self.start_watcher();
+                        }
+                    }
+                    Err(e) => {
+                        self.login_error = Some(e);
+                        self.add_activity("Error de login".to_string());
+                    }
+                }
+            }
+        }
+
         if self.syncing && self.last_sync.elapsed() > Duration::from_millis(700) {
             self.syncing = false;
         }
@@ -633,6 +767,9 @@ impl eframe::App for SyncFilesUi {
                 }
                 if ui.selectable_label(self.view == View::Queue, format!("  Cola ({})", self.queue_entries.len())).clicked() {
                     self.view = View::Queue;
+                }
+                if ui.selectable_label(self.view == View::Conflicts, format!("  Conflictos ({})", self.conflicts.len())).clicked() {
+                    self.view = View::Conflicts;
                 }
                 if ui.selectable_label(self.view == View::Activity, "  Actividad").clicked() {
                     self.view = View::Activity;
