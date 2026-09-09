@@ -482,6 +482,209 @@ pub async fn copy_handler(
     Ok(ok_response::<()>(None, server_seq))
 }
 
+pub async fn files_list_handler(
+    state: web::Data<Arc<AppState>>,
+    request: HttpRequest,
+) -> ActixResult<HttpResponse> {
+    let session = match authorize_session(&state, &request, "").await {
+        Ok(s) => s,
+        Err(resp) => return Ok(resp),
+    };
+
+    let include_deleted = request
+        .query_string()
+        .split('&')
+        .any(|pair| pair == "include_deleted=true" || pair == "include_deleted=1");
+
+    let files = match crate::db::list_files_for_user(&state.pool, &session.user_id, include_deleted).await {
+        Ok(f) => f,
+        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+    };
+    let total = files.len() as i64;
+    let items: Vec<syncfiles_models::FileListItem> = files.into_iter().map(|f| syncfiles_models::FileListItem {
+        file_id: f.file_id,
+        relative_path: f.relative_path,
+        path_hash: f.path_hash,
+        checksum: f.checksum,
+        size_bytes: f.size_bytes,
+        modified_at: f.modified_at,
+        synced_at: f.synced_at,
+        status: f.status,
+        deleted_at: f.deleted_at,
+        device_id: f.device_id,
+    }).collect();
+
+    let server_seq = state.next_server_seq();
+    info!("Files list: {} archivos para {}", total, session.user_id);
+    Ok(HttpResponse::Ok().json(syncfiles_models::FilesListResponse {
+        files: items,
+        total,
+        server_seq,
+    }))
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct QueueParams {
+    pub device_id: Option<String>,
+    pub status: Option<String>,
+    pub limit: Option<i64>,
+}
+
+pub async fn queue_handler(
+    state: web::Data<Arc<AppState>>,
+    request: HttpRequest,
+    params: web::Query<QueueParams>,
+) -> ActixResult<HttpResponse> {
+    let session = match authorize_session(&state, &request, "").await {
+        Ok(s) => s,
+        Err(resp) => return Ok(resp),
+    };
+
+    let device_filter = params.device_id.clone();
+    let pending_only = params
+        .status
+        .as_deref()
+        .map(|s| s == "pending" || s == "queued" || s == "retry")
+        .unwrap_or(false);
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+
+    let entries = if pending_only {
+        crate::db::get_pending_queued_ops_for_user(&state.pool, &session.user_id, device_filter.as_deref(), limit).await
+    } else {
+        crate::db::get_queued_ops_for_user(&state.pool, &session.user_id, device_filter.as_deref(), limit).await
+    };
+    let entries = match entries {
+        Ok(e) => e,
+        Err(err) => return Ok(bad_request("DB_ERROR", err.to_string())),
+    };
+
+    let total = match crate::db::get_queue_total_for_user(&state.pool, &session.user_id).await {
+        Ok(t) => t,
+        Err(err) => return Ok(bad_request("DB_ERROR", err.to_string())),
+    };
+
+    let server_seq = state.next_server_seq();
+    Ok(HttpResponse::Ok().json(syncfiles_models::QueueResponse {
+        entries,
+        total,
+        server_seq,
+    }))
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct ActivityParams {
+    pub limit: Option<i64>,
+}
+
+pub async fn activity_handler(
+    state: web::Data<Arc<AppState>>,
+    request: HttpRequest,
+    params: web::Query<ActivityParams>,
+) -> ActixResult<HttpResponse> {
+    let session = match authorize_session(&state, &request, "").await {
+        Ok(s) => s,
+        Err(resp) => return Ok(resp),
+    };
+
+    let limit = params.limit.unwrap_or(100).clamp(1, 500);
+
+    let events = match crate::db::get_activity_for_user(&state.pool, &session.user_id, limit).await {
+        Ok(e) => e,
+        Err(err) => return Ok(bad_request("DB_ERROR", err.to_string())),
+    };
+    let total = match crate::db::get_activity_total_for_user(&state.pool, &session.user_id).await {
+        Ok(t) => t,
+        Err(err) => return Ok(bad_request("DB_ERROR", err.to_string())),
+    };
+
+    let server_seq = state.next_server_seq();
+    Ok(HttpResponse::Ok().json(syncfiles_models::ActivityResponse {
+        events,
+        total,
+        server_seq,
+    }))
+}
+
+pub async fn conflicts_handler(
+    state: web::Data<Arc<AppState>>,
+    request: HttpRequest,
+) -> ActixResult<HttpResponse> {
+    let session = match authorize_session(&state, &request, "").await {
+        Ok(s) => s,
+        Err(resp) => return Ok(resp),
+    };
+
+    let conflicts = match crate::db::get_unresolved_conflicts_for_user(&state.pool, &session.user_id).await {
+        Ok(c) => c,
+        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+    };
+    let total = match crate::db::get_unresolved_conflict_count_for_user(&state.pool, &session.user_id).await {
+        Ok(t) => t,
+        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+    };
+
+    let server_seq = state.next_server_seq();
+    Ok(HttpResponse::Ok().json(syncfiles_models::ConflictsResponse {
+        conflicts,
+        total,
+        server_seq,
+    }))
+}
+
+pub async fn devices_handler(
+    state: web::Data<Arc<AppState>>,
+    request: HttpRequest,
+) -> ActixResult<HttpResponse> {
+    let session = match authorize_session(&state, &request, "").await {
+        Ok(s) => s,
+        Err(resp) => return Ok(resp),
+    };
+
+    let rows = match crate::db::get_user_devices(&state.pool, &session.user_id).await {
+        Ok(r) => r,
+        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+    };
+    let devices: Vec<syncfiles_models::DeviceWithSessions> = rows.into_iter().map(|(d, active)| syncfiles_models::DeviceWithSessions {
+        device_id: d.device_id,
+        platform: d.platform,
+        device_name: d.device_name,
+        last_seen_at: d.last_seen_at,
+        created_at: d.created_at,
+        active_sessions: active,
+    }).collect();
+    let total = devices.len() as i64;
+
+    let server_seq = state.next_server_seq();
+    Ok(HttpResponse::Ok().json(syncfiles_models::DevicesResponse {
+        devices,
+        total,
+        server_seq,
+    }))
+}
+
+pub async fn storage_stats_handler(
+    state: web::Data<Arc<AppState>>,
+    request: HttpRequest,
+) -> ActixResult<HttpResponse> {
+    let session = match authorize_session(&state, &request, "").await {
+        Ok(s) => s,
+        Err(resp) => return Ok(resp),
+    };
+
+    let (used_bytes, file_count, last_modified_at) = match crate::db::get_storage_stats(&state.pool, &session.user_id).await {
+        Ok(s) => s,
+        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+    };
+
+    let server_seq = state.next_server_seq();
+    Ok(HttpResponse::Ok().json(syncfiles_models::StorageStats {
+        used_bytes,
+        file_count,
+        last_modified_at,
+        server_seq,
+    }))
+}
+
 pub async fn resolve_conflict_handler(
     state: web::Data<Arc<AppState>>,
     request: HttpRequest,

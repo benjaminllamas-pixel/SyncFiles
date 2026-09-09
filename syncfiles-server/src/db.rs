@@ -7,6 +7,58 @@ fn now_ms_local() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+fn file_row_to_entry(r: FileEntryRow) -> FileEntry {
+    FileEntry {
+        file_id: r.file_id,
+        user_id: r.user_id,
+        device_id: r.device_id,
+        relative_path: r.relative_path,
+        path_hash: r.path_hash,
+        checksum: r.checksum,
+        size_bytes: r.size_bytes,
+        modified_at: r.modified_at,
+        synced_at: r.synced_at,
+        status: r.status,
+        last_sync_version: r.last_sync_version,
+        deleted_at: r.deleted_at,
+        content: r.content,
+    }
+}
+
+fn queue_row_to_entry(r: SyncQueueEntryRow) -> SyncQueueEntry {
+    SyncQueueEntry {
+        queue_id: r.queue_id,
+        file_id: r.file_id,
+        user_id: r.user_id,
+        device_id: r.device_id,
+        operation: r.operation,
+        status: r.status,
+        attempts: r.attempts,
+        idempotency_key: r.idempotency_key,
+        payload_json: r.payload_json,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        last_error: r.last_error,
+    }
+}
+
+fn conflict_row_to_entry(r: ConflictRow) -> Conflict {
+    Conflict {
+        conflict_id: r.conflict_id,
+        file_id: r.file_id,
+        user_id: r.user_id,
+        device_local: r.device_local,
+        device_remote: r.device_remote,
+        local_checksum: r.local_checksum,
+        remote_checksum: r.remote_checksum,
+        conflict_type: r.conflict_type,
+        strategy: r.strategy,
+        created_at: r.created_at,
+        resolved_at: r.resolved_at,
+        resolved_by: r.resolved_by,
+    }
+}
+
 pub async fn get_file_by_id_for_user(pool: &SqlitePool, user_id: &str, file_id: &str) -> Result<Option<FileEntry>> {
     let row = sqlx::query_as::<_, FileEntryRow>(
         "SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at, content FROM files WHERE user_id = ? AND file_id = ?"
@@ -170,6 +222,160 @@ pub async fn upsert_file(pool: &SqlitePool, file: &FileEntry) -> Result<()> {
     Ok(())
 }
 
+pub async fn list_files_for_user(pool: &SqlitePool, user_id: &str, include_deleted: bool) -> Result<Vec<FileEntry>> {
+    let sql = if include_deleted {
+        "SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at, content FROM files WHERE user_id = ? ORDER BY relative_path"
+    } else {
+        "SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at, content FROM files WHERE user_id = ? AND status != 'deleted' ORDER BY relative_path"
+    };
+    let rows = sqlx::query_as::<_, FileEntryRow>(sql)
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().map(file_row_to_entry).collect())
+}
+
+pub async fn get_queued_ops_for_user(pool: &SqlitePool, user_id: &str, device_id: Option<&str>, limit: i64) -> Result<Vec<SyncQueueEntry>> {
+    let rows = if let Some(device_id) = device_id {
+        sqlx::query_as::<_, SyncQueueEntryRow>(
+            "SELECT queue_id, file_id, user_id, device_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error FROM sync_queue WHERE user_id = ? AND device_id = ? ORDER BY created_at LIMIT ?"
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, SyncQueueEntryRow>(
+            "SELECT queue_id, file_id, user_id, device_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error FROM sync_queue WHERE user_id = ? ORDER BY created_at LIMIT ?"
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?
+    };
+    Ok(rows.into_iter().map(queue_row_to_entry).collect())
+}
+
+pub async fn get_pending_queued_ops_for_user(pool: &SqlitePool, user_id: &str, device_id: Option<&str>, limit: i64) -> Result<Vec<SyncQueueEntry>> {
+    let rows = if let Some(device_id) = device_id {
+        sqlx::query_as::<_, SyncQueueEntryRow>(
+            "SELECT queue_id, file_id, user_id, device_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error FROM sync_queue WHERE user_id = ? AND device_id = ? AND status IN ('queued', 'retry') ORDER BY created_at LIMIT ?"
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, SyncQueueEntryRow>(
+            "SELECT queue_id, file_id, user_id, device_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error FROM sync_queue WHERE user_id = ? AND status IN ('queued', 'retry') ORDER BY created_at LIMIT ?"
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?
+    };
+    Ok(rows.into_iter().map(queue_row_to_entry).collect())
+}
+
+pub async fn get_queue_total_for_user(pool: &SqlitePool, user_id: &str) -> Result<i64> {
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sync_queue WHERE user_id = ?"
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(total)
+}
+
+pub async fn get_activity_for_user(pool: &SqlitePool, user_id: &str, limit: i64) -> Result<Vec<AuditEntry>> {
+    let rows = sqlx::query_as::<_, AuditEntryRow>(
+        "SELECT audit_id, user_id, device_id, event_name, event_type, payload_json, created_at FROM audit_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
+    )
+    .bind(user_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|r| AuditEntry {
+        audit_id: r.audit_id,
+        user_id: r.user_id,
+        device_id: r.device_id,
+        event_name: r.event_name,
+        event_type: r.event_type,
+        payload_json: r.payload_json,
+        created_at: r.created_at,
+    }).collect())
+}
+
+pub async fn get_activity_total_for_user(pool: &SqlitePool, user_id: &str) -> Result<i64> {
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE user_id = ?"
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(total)
+}
+
+pub async fn get_unresolved_conflicts_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<Conflict>> {
+    let rows = sqlx::query_as::<_, ConflictRow>(
+        "SELECT conflict_id, file_id, user_id, device_local, device_remote, local_checksum, remote_checksum, conflict_type, strategy, created_at, resolved_at, resolved_by FROM conflicts WHERE user_id = ? AND resolved_at IS NULL ORDER BY created_at DESC"
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(conflict_row_to_entry).collect())
+}
+
+pub async fn get_unresolved_conflict_count_for_user(pool: &SqlitePool, user_id: &str) -> Result<i64> {
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM conflicts WHERE user_id = ? AND resolved_at IS NULL"
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(total)
+}
+
+pub async fn get_user_devices(pool: &SqlitePool, user_id: &str) -> Result<Vec<(crate::models::DeviceRow, i64)>> {
+    let rows = sqlx::query_as::<_, crate::models::DeviceRow>(
+        "SELECT device_id, user_id, platform, device_name, last_seen_at, created_at FROM devices WHERE user_id = ? ORDER BY last_seen_at DESC"
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await?;
+    let mut result = Vec::with_capacity(rows.len());
+    for row in rows {
+        let active: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sessions WHERE device_id = ? AND status = 'active' AND revoked_at IS NULL AND expires_at > ?"
+        )
+        .bind(&row.device_id)
+        .bind(now_ms_local())
+        .fetch_one(pool)
+        .await?;
+        result.push((row, active));
+    }
+    Ok(result)
+}
+
+pub async fn get_storage_stats(pool: &SqlitePool, user_id: &str) -> Result<(i64, i64, Option<i64>)> {
+    let row: Option<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT COALESCE(SUM(size_bytes), 0), MAX(modified_at) FROM files WHERE user_id = ? AND status != 'deleted'"
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    let file_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM files WHERE user_id = ? AND status != 'deleted'"
+    )
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    let (used_bytes, last_modified_at) = row.unwrap_or((0, None));
+    Ok((used_bytes, file_count, last_modified_at))
+}
+
 pub async fn get_files_modified_since(pool: &SqlitePool, user_id: &str, since: i64) -> Result<Vec<FileEntry>> {
     let rows = sqlx::query_as::<_, FileEntryRow>(
         "SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at, content FROM files WHERE user_id = ? AND (modified_at > ? OR deleted_at > ?)"
@@ -330,7 +536,7 @@ pub async fn record_idempotency(pool: &SqlitePool, idempotency_key: &str, sessio
 
 pub async fn mark_conflict(pool: &SqlitePool, conflict: &Conflict) -> Result<()> {
     sqlx::query(
-        "INSERT INTO conflicts (conflict_id, file_id, user_id, device_local, device_remote, local_checksum, remote_checksum, conflict_type, strategy, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO conflicts (conflict_id, file_id, user_id, device_local, device_remote, local_checksum, remote_checksum, conflict_type, strategy, created_at, resolved_at, resolved_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&conflict.conflict_id)
     .bind(&conflict.file_id)
@@ -342,6 +548,8 @@ pub async fn mark_conflict(pool: &SqlitePool, conflict: &Conflict) -> Result<()>
     .bind(&conflict.conflict_type)
     .bind(&conflict.strategy)
     .bind(conflict.created_at)
+    .bind(conflict.resolved_at)
+    .bind(&conflict.resolved_by)
     .execute(pool)
     .await?;
     Ok(())

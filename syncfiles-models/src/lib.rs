@@ -235,6 +235,73 @@ pub struct DownloadResponse {
     pub server_seq: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileListItem {
+    pub file_id: String,
+    pub relative_path: String,
+    pub path_hash: String,
+    pub checksum: String,
+    pub size_bytes: i64,
+    pub modified_at: i64,
+    pub synced_at: Option<i64>,
+    pub status: String,
+    pub deleted_at: Option<i64>,
+    pub device_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilesListResponse {
+    pub files: Vec<FileListItem>,
+    pub total: i64,
+    pub server_seq: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueResponse {
+    pub entries: Vec<SyncQueueEntry>,
+    pub total: i64,
+    pub server_seq: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivityResponse {
+    pub events: Vec<AuditEntry>,
+    pub total: i64,
+    pub server_seq: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConflictsResponse {
+    pub conflicts: Vec<Conflict>,
+    pub total: i64,
+    pub server_seq: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceWithSessions {
+    pub device_id: String,
+    pub platform: String,
+    pub device_name: Option<String>,
+    pub last_seen_at: i64,
+    pub created_at: i64,
+    pub active_sessions: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevicesResponse {
+    pub devices: Vec<DeviceWithSessions>,
+    pub total: i64,
+    pub server_seq: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageStats {
+    pub used_bytes: i64,
+    pub file_count: i64,
+    pub last_modified_at: Option<i64>,
+    pub server_seq: i64,
+}
+
 pub fn now_ms() -> i64 {
     Utc::now().timestamp_millis()
 }

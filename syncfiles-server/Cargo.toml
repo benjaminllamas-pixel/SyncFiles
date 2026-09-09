@@ -31,5 +31,6 @@ syncfiles-models = { path = "../syncfiles-models" }
 
 [dev-dependencies]
 actix-web = { version = "4", features = ["rustls", "macros"] }
+actix-http = "3"
 actix-rt = "2"
 tempfile = "3"

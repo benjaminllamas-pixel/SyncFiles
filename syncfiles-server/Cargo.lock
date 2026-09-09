@@ -2314,6 +2314,7 @@ name = "syncfiles-server"
 version = "0.1.0"
 dependencies = [
  "actix-cors",
+ "actix-http",
  "actix-rt",
  "actix-web",
  "anyhow",

@@ -17,7 +17,12 @@ async fn main() -> Result<()> {
     let bind = app_config.bind_address;
 
     actix_web::HttpServer::new(move || {
+        let cors = actix_cors::Cors::permissive()
+            .supports_credentials()
+            .max_age(3600);
+
         actix_web::App::new()
+            .wrap(cors)
             .app_data(actix_web::web::Data::new(app_state.clone()))
             .service(
                 actix_web::web::scope("/api/v1")
@@ -31,6 +36,12 @@ async fn main() -> Result<()> {
                     .route("/sync/rename", actix_web::web::post().to(syncfiles_server::handlers::rename_handler))
                     .route("/sync/move", actix_web::web::post().to(syncfiles_server::handlers::move_handler))
                     .route("/sync/copy", actix_web::web::post().to(syncfiles_server::handlers::copy_handler))
+                    .route("/files/list", actix_web::web::get().to(syncfiles_server::handlers::files_list_handler))
+                    .route("/queue", actix_web::web::get().to(syncfiles_server::handlers::queue_handler))
+                    .route("/activity", actix_web::web::get().to(syncfiles_server::handlers::activity_handler))
+                    .route("/conflicts", actix_web::web::get().to(syncfiles_server::handlers::conflicts_handler))
+                    .route("/devices", actix_web::web::get().to(syncfiles_server::handlers::devices_handler))
+                    .route("/storage/stats", actix_web::web::get().to(syncfiles_server::handlers::storage_stats_handler))
                     .route("/conflicts/resolve", actix_web::web::post().to(syncfiles_server::handlers::resolve_conflict_handler))
                     .default_service(actix_web::web::route().to(syncfiles_server::handlers::not_found))
             )
