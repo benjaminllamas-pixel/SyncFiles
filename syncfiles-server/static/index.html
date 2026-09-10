@@ -8,17 +8,93 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- Iconos SVG -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <defs>
+      <symbol id="i-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 16.618A4 4 0 0 0 18 9h-1.262A7 7 0 1 0 4 15.016"/><path d="M12 3v13"/><path d="m8 12 4-4 4 4"/>
+      </symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 6h16M4 12h16M4 18h16"/>
+      </symbol>
+      <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+      </symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </symbol>
+      <symbol id="i-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01M6 18h.01"/>
+      </symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>
+      </symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+      </symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.46 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>
+      </symbol>
+      <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+      </symbol>
+      <symbol id="i-database" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>
+      </symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+      </symbol>
+      <symbol id="i-device" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="16" height="18" x="4" y="3" rx="2"/><path d="M12 17h.01"/>
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>
+      </symbol>
+      <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+      </symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>
+      </symbol>
+      <symbol id="i-check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/>
+      </symbol>
+    </defs>
+  </svg>
+
   <!-- Login -->
   <section id="login-view" class="login-view hidden">
     <form id="login-form" class="login-card" autocomplete="on">
+      <span class="brand-mark large"><svg><use href="#i-logo"/></svg></span>
       <h1 class="brand">Sync<span>Files</span></h1>
-      <p class="muted" id="login-server-hint"></p>
-      <label for="login-email">Correo</label>
-      <input id="login-email" type="email" placeholder="usuario@ejemplo.com" required autocomplete="username">
-      <label for="login-password">Contraseña</label>
-      <input id="login-password" type="password" placeholder="••••••••" required autocomplete="current-password">
-      <label for="login-server">URL del servidor</label>
-      <input id="login-server" type="url" placeholder="http://127.0.0.1:8080" required>
+      <p class="login-sub">Accede a tu espacio sincronizado</p>
+      <p class="login-device" id="login-server-hint"></p>
+
+      <div class="field">
+        <label for="login-email">Correo</label>
+        <div class="input-wrap">
+          <svg class="input-ico"><use href="#i-mail"/></svg>
+          <input id="login-email" type="email" placeholder="usuario@ejemplo.com" required autocomplete="username">
+        </div>
+      </div>
+      <div class="field">
+        <label for="login-password">Contraseña</label>
+        <div class="input-wrap">
+          <svg class="input-ico"><use href="#i-lock"/></svg>
+          <input id="login-password" type="password" placeholder="••••••••" required autocomplete="current-password">
+        </div>
+      </div>
+      <div class="field">
+        <label for="login-server">URL del servidor</label>
+        <div class="input-wrap">
+          <svg class="input-ico"><use href="#i-server"/></svg>
+          <input id="login-server" type="url" placeholder="http://127.0.0.1:8080" required>
+        </div>
+      </div>
+
       <button type="submit" class="btn primary" id="login-submit">Iniciar sesión</button>
       <p id="login-error" class="error hidden" role="alert"></p>
     </form>
@@ -27,42 +103,50 @@
   <!-- App -->
   <div id="app-view" class="app hidden">
     <header class="topbar">
-      <button id="nav-toggle" class="icon-btn" aria-label="Abrir menú">☰</button>
-      <h1 class="brand small">Sync<span>Files</span></h1>
+      <button id="nav-toggle" class="icon-btn" aria-label="Abrir menú">
+        <svg class="ico"><use href="#i-menu"/></svg>
+      </button>
+      <div class="topbar-brand">
+        <span class="brand-mark"><svg><use href="#i-logo"/></svg></span>
+        <h1 class="brand small">Sync<span>Files</span></h1>
+      </div>
       <span id="conn-badge" class="badge offline" title="Estado de conexión">Sin conectar</span>
-      <button id="logout-btn" class="btn ghost small-btn">Cerrar sesión</button>
+      <button id="logout-btn" class="btn ghost small-btn">
+        <svg class="b-ico"><use href="#i-logout"/></svg>
+        Cerrar sesión
+      </button>
     </header>
 
     <nav id="nav" class="nav">
-      <a href="#" data-view="dashboard" class="nav-link active">Dashboard</a>
-      <a href="#" data-view="files" class="nav-link">Archivos</a>
-      <a href="#" data-view="conflicts" class="nav-link">Conflictos <span id="conflict-count" class="count hidden">0</span></a>
-      <a href="#" data-view="activity" class="nav-link">Actividad</a>
+      <a href="#" data-view="dashboard" class="nav-link active"><svg class="ico"><use href="#i-grid"/></svg>Dashboard</a>
+      <a href="#" data-view="files" class="nav-link"><svg class="ico"><use href="#i-folder"/></svg>Archivos</a>
+      <a href="#" data-view="conflicts" class="nav-link"><svg class="ico"><use href="#i-alert"/></svg>Conflictos <span id="conflict-count" class="count hidden">0</span></a>
+      <a href="#" data-view="activity" class="nav-link"><svg class="ico"><use href="#i-activity"/></svg>Actividad</a>
     </nav>
 
     <main id="main" class="main">
       <!-- Dashboard -->
       <section id="view-dashboard" class="view">
-        <h2>Dashboard</h2>
+        <h2><svg class="ico"><use href="#i-grid"/></svg>Dashboard</h2>
         <div id="dash-error" class="error hidden"></div>
         <div class="cards" id="dash-cards">
           <div class="card">
-            <h3>Servidor</h3>
+            <h3><svg class="ico"><use href="#i-server"/></svg>Servidor</h3>
             <p id="dash-server-state" class="big">—</p>
             <p class="muted" id="dash-server-url"></p>
           </div>
           <div class="card">
-            <h3>Almacenamiento</h3>
+            <h3><svg class="ico"><use href="#i-database"/></svg>Almacenamiento</h3>
             <p id="dash-storage-used" class="big">—</p>
             <p class="muted" id="dash-storage-files"></p>
           </div>
           <div class="card">
-            <h3>Última modificación</h3>
+            <h3><svg class="ico"><use href="#i-clock"/></svg>Última modificación</h3>
             <p id="dash-last-mod" class="big">—</p>
           </div>
         </div>
         <div class="card">
-          <h3>Dispositivos</h3>
+          <h3><svg class="ico"><use href="#i-device"/></svg>Dispositivos</h3>
           <div class="table-wrap">
             <table id="devices-table">
               <thead>
@@ -71,19 +155,22 @@
               <tbody></tbody>
             </table>
           </div>
-          <p id="devices-empty" class="muted hidden">Sin dispositivos registrados.</p>
+          <p id="devices-empty" class="empty-state hidden"><svg><use href="#i-device"/></svg>Sin dispositivos registrados.</p>
         </div>
       </section>
 
       <!-- Files -->
       <section id="view-files" class="view hidden">
         <div class="view-head">
-          <h2>Archivos</h2>
+          <h2><svg class="ico"><use href="#i-folder"/></svg>Archivos</h2>
           <div class="view-actions">
             <label class="toggle">
               <input type="checkbox" id="files-show-deleted"> Mostrar borrados
             </label>
-            <button id="files-refresh" class="btn ghost">Actualizar</button>
+            <button id="files-refresh" class="btn ghost">
+              <svg class="b-ico"><use href="#i-refresh"/></svg>
+              Actualizar
+            </button>
           </div>
         </div>
         <div id="files-error" class="error hidden"></div>
@@ -96,26 +183,32 @@
               <tbody></tbody>
             </table>
           </div>
-          <p id="files-empty" class="muted hidden">Sin archivos sincronizados todavía.</p>
+          <p id="files-empty" class="empty-state hidden"><svg><use href="#i-folder"/></svg>Sin archivos sincronizados todavía.</p>
         </div>
       </section>
 
       <!-- Conflicts -->
       <section id="view-conflicts" class="view hidden">
         <div class="view-head">
-          <h2>Conflictos</h2>
-          <button id="conflicts-refresh" class="btn ghost">Actualizar</button>
+          <h2><svg class="ico"><use href="#i-alert"/></svg>Conflictos</h2>
+          <button id="conflicts-refresh" class="btn ghost">
+            <svg class="b-ico"><use href="#i-refresh"/></svg>
+            Actualizar
+          </button>
         </div>
         <div id="conflicts-error" class="error hidden"></div>
         <div id="conflicts-list" class="conflict-list"></div>
-        <p id="conflicts-empty" class="muted hidden">No hay conflictos sin resolver. Todo en orden.</p>
+        <p id="conflicts-empty" class="empty-state hidden"><svg><use href="#i-check-circle"/></svg>No hay conflictos sin resolver. Todo en orden.</p>
       </section>
 
       <!-- Activity -->
       <section id="view-activity" class="view hidden">
         <div class="view-head">
-          <h2>Actividad</h2>
-          <button id="activity-refresh" class="btn ghost">Actualizar</button>
+          <h2><svg class="ico"><use href="#i-activity"/></svg>Actividad</h2>
+          <button id="activity-refresh" class="btn ghost">
+            <svg class="b-ico"><use href="#i-refresh"/></svg>
+            Actualizar
+          </button>
         </div>
         <div id="activity-error" class="error hidden"></div>
         <div class="card">
@@ -127,7 +220,7 @@
               <tbody></tbody>
             </table>
           </div>
-          <p id="activity-empty" class="muted hidden">Sin eventos registrados.</p>
+          <p id="activity-empty" class="empty-state hidden"><svg><use href="#i-activity"/></svg>Sin eventos registrados.</p>
         </div>
       </section>
     </main>

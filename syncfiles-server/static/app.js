@@ -187,7 +187,9 @@ async function loadDashboard() {
     ]);
     setConnBadge(true);
 
-    $('dash-server-state').textContent = 'En línea';
+    const stateEl = $('dash-server-state');
+    stateEl.textContent = 'En línea';
+    stateEl.classList.add('big-ok');
     $('dash-server-url').textContent = store.serverUrl;
     $('dash-storage-used').textContent = fmtBytes(stats.used_bytes);
     $('dash-storage-files').textContent = `${stats.file_count} archivo(s) sincronizado(s)`;
@@ -210,7 +212,7 @@ function renderDevices(devices) {
     tr.innerHTML = `
       <td>${escapeHtml(d.device_name || d.device_id)}</td>
       <td>${escapeHtml(d.platform || '—')}</td>
-      <td>${active ? 'Sí' : 'No'}</td>
+      <td>${active ? '<span class="status-pill synced">Sí</span>' : '<span class="status-pill deleted">No</span>'}</td>
       <td>${fmtDate(d.last_seen_at)}</td>`;
     tbody.appendChild(tr);
   }
@@ -230,6 +232,12 @@ async function loadFiles() {
   }
 }
 
+const STATUS_LABELS = { synced: 'Sincronizado', deleted: 'Borrado', pending: 'Pendiente', queued: 'En cola', retry: 'Reintentando' };
+
+function statusPill(status) {
+  return `<span class="status-pill ${escapeHtml(status)}">${escapeHtml(STATUS_LABELS[status] || status)}</span>`;
+}
+
 function renderFiles(files) {
   const tbody = $('files-table').querySelector('tbody');
   tbody.innerHTML = '';
@@ -245,12 +253,12 @@ function renderFiles(files) {
 
     const downloadBtn = document.createElement('button');
     downloadBtn.className = 'btn tiny ghost';
-    downloadBtn.textContent = 'Descargar';
+    downloadBtn.innerHTML = `<svg class="b-ico"><use href="#i-download"/></svg>Descargar`;
     downloadBtn.addEventListener('click', () => downloadFile(f));
 
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn tiny danger';
-    deleteBtn.textContent = 'Borrar';
+    deleteBtn.innerHTML = `<svg class="b-ico"><use href="#i-trash"/></svg>Borrar`;
     deleteBtn.disabled = f.status === 'deleted';
     deleteBtn.addEventListener('click', () => deleteFile(f));
 
@@ -267,7 +275,7 @@ function renderFiles(files) {
       <td class="path-cell">${escapeHtml(f.relative_path)}</td>
       <td class="num">${fmtBytes(f.size_bytes)}</td>
       <td>${fmtDate(f.modified_at)}</td>
-      <td><span class="status-pill ${f.status}">${f.status}</span></td>`;
+      <td>${statusPill(f.status)}</td>`;
     const tdActions = document.createElement('td');
     tdActions.appendChild(actions);
     tr.appendChild(tdActions);
