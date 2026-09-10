@@ -16,6 +16,12 @@ fn main() -> eframe::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // Modo headless para pruebas E2E: SF_HEADLESS=1 ejecuta el SyncEngine sin GUI.
+    if std::env::var("SF_HEADLESS").ok().as_deref() == Some("1") {
+        headless_main();
+        return Ok(());
+    }
+
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
     let _guard = rt.enter();
 
@@ -1470,6 +1476,61 @@ fn view_name(view: View) -> &'static str {
         View::Activity => "Actividad",
         View::Settings => "Ajustes",
     }
+}
+
+/// Modo headless (SF_HEADLESS=1): ejecuta el SyncEngine real del cliente sin GUI.
+/// Usado por la batería E2E de Fase 5 (`scripts/e2e-phase5.sh`) para probar
+/// cola persistente, reintentos y propagación con el motor de producción.
+/// Env vars: SF_SERVER_URL, SF_EMAIL, SF_PASSWORD, SF_DEVICE_ID, SF_SYNC_ROOT,
+/// SF_DATA_DIR (aisla SQLite/config del usuario), SF_POLLING_INTERVAL.
+/// Sale con: 0 si el primer ciclo completa OK, 1 si falla el login o el ciclo.
+fn headless_main() {
+    let config = match crate::config::Config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("headless: error cargando config: {e}");
+            std::process::exit(1);
+        }
+    };
+    if config.email.is_empty() || config.password.is_empty() {
+        eprintln!("headless: SF_EMAIL/SF_PASSWORD requeridos");
+        std::process::exit(1);
+    }
+    std::fs::create_dir_all(&config.sync_root).expect("crear sync_root");
+
+    let sync_client = Arc::new(crate::network::SyncClient::new(&config.server_url, &config.device_id)
+        .expect("crear SyncClient"));
+    let metadata = Arc::new(std::sync::Mutex::new(
+        crate::metadata::MetadataStore::new(config.clone()).expect("init MetadataStore"),
+    ));
+    let auth = crate::auth::AuthService::new(sync_client.clone(), metadata.clone());
+
+    let rt = tokio::runtime::Runtime::new().expect("runtime headless");
+    rt.block_on(async move {
+        if let Err(e) = auth.login().await {
+            eprintln!("headless: login falló: {e}");
+            std::process::exit(1);
+        }
+        eprintln!("headless: login OK");
+
+        // Watcher + motor: el motor procesa cola persistente, pull y push.
+        let metadata_cb = metadata.clone();
+        let root = config.sync_root.clone();
+        let watcher = crate::watcher::FileWatcher::new(root, Arc::new(move |path_str| {
+            let mut store = metadata_cb.lock().unwrap();
+            if let Err(e) = store.enqueue(&path_str, "pending", None) {
+                tracing::warn!("headless: error encolando cambio: {e}");
+            }
+        }));
+        let _watcher_handle = watcher.start().expect("iniciar watcher");
+
+        let engine = crate::sync::SyncEngine::new(config.clone(), sync_client.clone(), metadata.clone());
+        eprintln!("headless: motor iniciado; presionar Ctrl-C para salir");
+        if let Err(e) = engine.run().await {
+            eprintln!("headless: error del motor: {e}");
+            std::process::exit(1);
+        }
+    });
 }
 
 fn collect_files(root: &std::path::PathBuf, current: &std::path::PathBuf, files: &mut Vec<UiFile>) {

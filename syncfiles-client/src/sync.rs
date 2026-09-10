@@ -124,6 +124,9 @@ impl SyncEngine {
             token_hash: session_rec.token_hash,
         };
 
+        info!("Reconciliando carpeta local con la base de metadatos...");
+        self.reconcile_local_folder().await;
+
         info!("Reprocesando cola persistente...");
         self.retry_queued_ops(&session).await?;
 
@@ -134,6 +137,56 @@ impl SyncEngine {
         self.push_local(&session).await?;
 
         Ok(())
+    }
+
+    /// Escanea la carpeta local y encola como 'pending' los archivos que:
+    /// - no existen en la BD (nuevos, p.ej. creados con el cliente apagado), o
+    /// - su checksum cambió respecto al último subido (editados en frío).
+    /// Sin esto, los archivos creados/ modificados mientras el cliente estaba
+    /// cerrado jamás se sincronizarían (el watcher solo ve cambios en caliente).
+    async fn reconcile_local_folder(&self) {
+        let mut disk_files = std::collections::HashMap::new();
+        if let Err(e) = scan_files(&self.config.sync_root, &mut disk_files) {
+            warn!("Error escaneando {:?}: {}", self.config.sync_root, e);
+            return;
+        }
+
+        let known: std::collections::HashMap<String, FileEntry> = {
+            let store = self.store.lock().unwrap();
+            match store.get_files_by_status("synced") {
+                Ok(entries) => entries.into_iter().map(|f| (f.relative_path.clone(), f)).collect(),
+                Err(e) => {
+                    warn!("Error leyendo archivos sincronizados: {}", e);
+                    return;
+                }
+            }
+        };
+
+        for (relative, checksum) in &disk_files {
+            match known.get(relative) {
+                None => {
+                    // Archivo nuevo (cliente apagado o primera ejecución)
+                    let store = self.store.lock().unwrap();
+                    if store.get_file_by_relative_path(relative).ok().flatten().is_none() {
+                        if let Err(e) = store.enqueue(relative, "pending", None) {
+                            warn!("Error encolando nuevo archivo {}: {}", relative, e);
+                        } else {
+                            info!("Archivo local nuevo detectado por escaneo: {}", relative);
+                        }
+                    }
+                }
+                Some(entry) => {
+                    if entry.checksum != *checksum {
+                        // Contenido cambió desde la última sincronización
+                        let store = self.store.lock().unwrap();
+                        if let Ok(Some(_)) = store.get_file_by_relative_path(relative) {
+                            let _ = store.update_file_status(relative, "pending");
+                        }
+                        info!("Cambio local detectado por escaneo: {}", relative);
+                    }
+                }
+            }
+        }
     }
 
     async fn pull_remote(&self, session: &crate::metadata::Session) -> Result<()> {
@@ -404,6 +457,9 @@ impl SyncEngine {
             // Solo reprocesar payloads upload persistidos; los 'pending' del
             // watcher sin payload se manejan via push_local.
             let Some(payload_json) = &op.payload_json else {
+                // Sin payload no hay nada que reprocesar; cerrar para no volver a verla
+                let store = self.store.lock().unwrap();
+                let _ = store.update_queue_status(&op.queue_id, "done", Some("sin payload"));
                 continue;
             };
             let Ok(payload) = serde_json::from_str::<UploadRequest>(payload_json) else {
@@ -449,4 +505,30 @@ impl SyncEngine {
         }
         Ok(())
     }
+}
+
+/// Escanea recursivamente un directorio devolviendo ruta relativa → checksum.
+/// Ignora archivos ocultos y de metadatos (`.DS_Store`, `.conflict_*` no: los
+/// conflictos preservados SÍ se sincronizan como archivos normales).
+fn scan_files(root: &std::path::Path, out: &mut std::collections::HashMap<String, String>) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        if path.is_dir() {
+            scan_files(&path, out)?;
+        } else if path.is_file() {
+            let relative = path
+                .strip_prefix(root)?
+                .to_str()
+                .unwrap_or_default()
+                .to_string();
+            let checksum = crate::metadata::MetadataStore::hash_file_at(&path).unwrap_or_default();
+            out.insert(relative, checksum);
+        }
+    }
+    Ok(())
 }

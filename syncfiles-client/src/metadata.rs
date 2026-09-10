@@ -209,6 +209,16 @@ impl MetadataStore {
         Ok(())
     }
 
+    /// Marca por ruta relativa un archivo de vuelta a 'pending' (p.ej. cambio detectado en escaneo).
+    pub fn update_file_status(&self, relative_path: &str, status: &str) -> Result<()> {
+        let now = Utc::now().timestamp_millis();
+        self.conn.execute(
+            "UPDATE files SET status = ?1, synced_at = NULL, modified_at = ?2 WHERE relative_path = ?3",
+            params![status, now, relative_path],
+        )?;
+        Ok(())
+    }
+
     pub fn rename_local_path(&self, old_path: &str, new_path: &str) -> Result<()> {
         let now = Utc::now().timestamp_millis();
         let new_hash = compute_path_hash(new_path);

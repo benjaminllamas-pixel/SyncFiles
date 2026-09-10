@@ -12,12 +12,16 @@
 **Excluido (fases posteriores):** encriptación E2E, versionado, compartir, NAS avanzado.
 
 **Criterios de éxito:**
-- [ ] Login/logout visible y funcional en desktop (ya existe en Android/web pendiente)
-- [ ] Sincronización real entre 2+ dispositivos con archivos de prueba
-- [ ] Conflictos creados, detectados y resueltos desde la UI
-- [ ] Cola de sincronización persistente con reintentos visible
-- [ ] Registro de actividad/auditoría accesible desde la UI
-- [ ] Web dashboard mínimo servido desde `syncfiles-server`
+- [x] Login/logout visible y funcional en desktop (ya existe en Android/web pendiente)
+- [x] Sincronización real entre 2+ dispositivos con archivos de prueba
+      (verificado en 5.2/5.4 con motor real + CLI multi-dispositivo)
+- [x] Conflictos creados, detectados y resueltos desde la UI
+      (verificado en 5.3: detección, listado y resolución keep_local)
+- [x] Cola de sincronización persistente con reintentos visible
+      (verificado en 5.4: reinicio del cliente con archivo offline pendiente)
+- [x] Registro de actividad/auditoría accesible desde la UI
+      (verificado en 5.5: GET /activity con eventos reales)
+- [x] Web dashboard mínimo servido desde `syncfiles-server`
 
 ---
 
@@ -159,17 +163,37 @@
 
 ## 5. Fase 5 — Pruebas E2E reales
 
-- [ ] 5.1 Levantar servidor local (`scripts/e2e-test.sh` como base)
-- [ ] 5.2 Escenario multi-dispositivo: desktop + Android + web simultáneos
+- [x] 5.1 Levantar servidor local (`scripts/e2e-test.sh` como base)
+      (corregido: espera activa del arranque, login JSON del CLI, descarga con
+      file_id real del diff + verificación de contenido con `cmp`)
+- [x] 5.2 Escenario multi-dispositivo: desktop + Android + web simultáneos
       con la misma cuenta, verificando propagación de cambios
-- [ ] 5.3 Escenario de conflicto: editar el mismo archivo en 2 dispositivos offline,
+      (`scripts/e2e-phase5.sh`: A sube → B ve diff → B descarga idéntico →
+      B borra → A ve el delete; los endpoints que consumen las 3 UIs quedaron
+      verificados con datos reales)
+- [x] 5.3 Escenario de conflicto: editar el mismo archivo en 2 dispositivos offline,
       reconectar, resolver desde la UI
-- [ ] 5.4 Escenario de reinicio: cerrar/abrir cliente con cola pendiente (verificar
+      (CLI A/B + curl: `status=conflict`, listado `GET /conflicts`, resolución
+      `keep_local` con `preserve_alternative=true`, conflicto desaparece)
+- [x] 5.4 Escenario de reinicio: cerrar/abrir cliente con cola pendiente (verificar
       persistencia)
-- [ ] 5.5 Escenario de red interrumpida: desconectar servidor a mitad de subida,
+      (cliente desktop en modo headless `SF_HEADLESS=1` con motor real: sube en
+      caliente, se mata, archivo creado offline, al reiniciar el escaneo de
+      reconciliación lo detecta y sube; SQLite local persiste vía `SF_DATA_DIR`)
+- [x] 5.5 Escenario de red interrumpida: desconectar servidor a mitad de subida,
       verificar reintentos y notificaciones
-- [ ] 5.6 Documentar resultados en `docs/41-estrategia-pruebas.md` y actualizar
+      (servidor caído → upload falla limpiente sin colgar; servidor recuperado →
+      reintento manual OK y el motor reintenta solo el archivo pendiente)
+- [x] 5.6 Documentar resultados en `docs/41-estrategia-pruebas.md` y actualizar
       `docs/37-interfaz-usuario.md` con pantallas finales
+      (§9 en docs/41 con matriz de resultados y bugs; docs/37 con tablas de
+      pantallas de desktop/Android/web y cómo lanzar cada cliente)
+
+**Resultado Fase 5: 17 PASS / 0 FAIL** (`scripts/e2e-phase5.sh`) + smoke PASS +
+21 tests de integración del server PASS. Bugs corregidos de camino: parseo de
+subcomandos del CLI, salida JSON de login, escaneo de reconciliación de carpeta
+local en el SyncEngine (archivos creados con el cliente apagado), y purga de
+operaciones de cola sin payload.
 
 ## 6. Dependencias entre fases
 

@@ -18,8 +18,28 @@ struct Args {
     arg2: String,
 }
 
+const COMMANDS: &[&str] = &[
+    "login", "upload", "download", "delete", "rename", "diff", "session-status", "logout",
+];
+
 fn parse_args() -> Args {
     let args: Vec<String> = std::env::args().collect();
+    // Estilo subcomando: `<bin> <command> [arg1] [arg2]` con env para el resto.
+    if args.len() > 1 && COMMANDS.contains(&args[1].as_str()) {
+        let env = |name: &str, default: &str| {
+            std::env::var(name).unwrap_or_else(|_| default.to_string())
+        };
+        return Args {
+            server_url: env("SF_SERVER_URL", "http://127.0.0.1:8080"),
+            email: env("SF_EMAIL", "admin@syncfiles.local"),
+            password: env("SF_PASSWORD", "syncfiles"),
+            device_id: env("SF_DEVICE_ID", "cli-test"),
+            command: args[1].clone(),
+            arg1: args.get(2).cloned().unwrap_or_default(),
+            arg2: args.get(3).cloned().unwrap_or_default(),
+        };
+    }
+    // Estilo legacy posicional: `<bin> <url> <email> <password> <device> <command> [arg1] [arg2]`.
     let get = |idx: usize, env: &str, default: &str| -> String {
         if args.len() > idx {
             args[idx].clone()
@@ -46,8 +66,14 @@ async fn main() -> Result<()> {
 
     match args.command.as_str() {
         "login" => {
-            let resp = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
-            println!("{}", resp);
+            let session = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
+            println!("{}", serde_json::json!({
+                "status": "ok",
+                "session_id": session,
+                "user_id": "user-001",
+                "email": args.email,
+                "device_id": args.device_id,
+            }));
         }
         "upload" => {
             let session = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;

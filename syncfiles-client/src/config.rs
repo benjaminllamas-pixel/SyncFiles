@@ -14,7 +14,12 @@ pub struct Config {
 }
 
 impl Config {
+    /// Directorio de datos del cliente. Sobreescrible con `SF_DATA_DIR`
+    /// (útil para pruebas E2E aisladas y multi-instancia).
     pub fn data_dir() -> PathBuf {
+        if let Ok(dir) = std::env::var("SF_DATA_DIR") {
+            return PathBuf::from(dir);
+        }
         dirs::data_dir()
             .expect("no data dir")
             .join("syncfiles")

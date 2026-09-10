@@ -30,10 +30,17 @@ SF_USER_0_PASSWORD="$PASSWORD" \
 SF_USER_0_ID="user-001" \
 "$SERVER_BIN" > "$WORKDIR/server.log" 2>&1 &
 SERVER_PID=$!
-sleep 2
+# Espera activa del servidor (responde aunque sea 401, sin Bearer)
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ! curl -s -o /dev/null -m 2 "$SERVER_URL/api/v1/session/status"; then
+        sleep 1
+    else
+        break
+    fi
+done
 
-# Check server is up
-if ! curl -sf "$SERVER_URL/api/v1/session/status" > /dev/null 2>&1; then
+# Check server is up (401 sin token = servidor vivo)
+if ! curl -s -o /dev/null -m 2 "$SERVER_URL/api/v1/session/status"; then
     echo "FAIL: Server no responde"
     cat "$WORKDIR/server.log"
     exit 1
@@ -80,10 +87,27 @@ echo "[5/7] Diff..."
 DIFF_RESP=$(SF_SERVER_URL="$SERVER_URL" SF_EMAIL="$EMAIL" SF_PASSWORD="$PASSWORD" SF_DEVICE_ID="$DEVICE_ID" "$CLI_BIN" diff 0)
 echo "      Diff response: $(echo "$DIFF_RESP" | head -c 200)"
 
-# Download and verify
+# Download and verify (usa el file_id real devuelto por el diff)
 echo "[6/7] Download y verificación..."
-DL_RESP=$(SF_SERVER_URL="$SERVER_URL" SF_EMAIL="$EMAIL" SF_PASSWORD="$PASSWORD" SF_DEVICE_ID="$DEVICE_ID" "$CLI_BIN" download dummy-id "$WORKDIR/dl-test.txt")
-echo "      Download response: $(echo "$DL_RESP" | head -c 200)"
+FILE_ID=$(echo "$DIFF_RESP" | grep -o '"file_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ -z "$FILE_ID" ]; then
+    echo "FAIL: Diff no devolvió ningún file_id"
+    echo "$DIFF_RESP"
+    exit 1
+fi
+DL_RESP=$(SF_SERVER_URL="$SERVER_URL" SF_EMAIL="$EMAIL" SF_PASSWORD="$PASSWORD" SF_DEVICE_ID="$DEVICE_ID" "$CLI_BIN" download "$FILE_ID" "$WORKDIR/dl-test.txt")
+if grep -q "Saved" <<< "$DL_RESP"; then
+    if cmp -s "$WORKDIR/test.txt" "$WORKDIR/dl-test.txt"; then
+        echo "      Download OK (contenido verificado)"
+    else
+        echo "FAIL: El contenido descargado no coincide"
+        exit 1
+    fi
+else
+    echo "FAIL: Download falló"
+    echo "$DL_RESP"
+    exit 1
+fi
 
 # Test conflict: upload same path with different checksum
 echo "[7/7] Test conflicto (upload con checksum distinto)..."
@@ -110,7 +134,13 @@ SF_USER_0_PASSWORD="$PASSWORD" \
 SF_USER_0_ID="user-001" \
 "$SERVER_BIN" > "$WORKDIR/server2.log" 2>&1 &
 SERVER_PID=$!
-sleep 2
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ! curl -s -o /dev/null -m 2 "$SERVER_URL/api/v1/session/status"; then
+        sleep 1
+    else
+        break
+    fi
+done
 
 # Verify data persists
 DIFF2=$(SF_SERVER_URL="$SERVER_URL" SF_EMAIL="$EMAIL" SF_PASSWORD="$PASSWORD" SF_DEVICE_ID="$DEVICE_ID" "$CLI_BIN" diff 0)
