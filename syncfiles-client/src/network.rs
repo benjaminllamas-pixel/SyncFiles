@@ -6,7 +6,7 @@ use std::time::Duration;
 use tracing::info;
 use uuid::Uuid;
 
-use syncfiles_models::{ApiResponse, ApiError, LoginRequest, LoginResponse, DiffRequest, DiffResponse, ChangeEntry, UploadRequest, DeleteRequest, DownloadRequest, ResolveConflictRequest, DownloadResponse, now_ms};
+use syncfiles_models::{ApiResponse, ApiError, LoginResponse, DiffResponse, ChangeEntry, UploadRequest, DeleteRequest, DownloadRequest, ResolveConflictRequest, DownloadResponse};
 
 #[derive(Debug, Clone)]
 pub struct SyncClient {
@@ -73,6 +73,25 @@ impl SyncClient {
             .with_context(|| format!("Failed to parse response from {}", path))?;
         info!("{} {} -> OK", method, path);
         Ok(result)
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub async fn http_get_bearer(&self, url: &str, token: &str) -> Result<String> {
+        let resp = self.http
+            .get(url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .with_context(|| format!("Failed to GET {}", url))?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            return Err(anyhow!("GET {} error {}: {}", url, status, text));
+        }
+        Ok(text)
     }
 
     pub async fn login(&self, email: &str, password: &str, device_id: &str) -> Result<LoginResponse> {

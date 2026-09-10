@@ -45,46 +45,45 @@
 > Prioridad: conectar lo ya escrito antes de crear features nuevas.
 
 ### 2.1 Login/Logout visible
-- [ ] Añadir pantalla de login (email/contraseña/URL servidor) al arrancar si no hay sesión
-      — reutilizar `login()` (`syncfiles-client/src/main.rs:264`)
-- [ ] Añadir botón "Cerrar sesión" que invoque `logout()` (`main.rs:294`)
-- [ ] Mostrar `login_error` y estado `connecting` en la UI
+- [x] Añadir pantalla de login (email/contraseña/URL servidor) al arrancar si no hay sesión
+      — reutilizar `login()` (`syncfiles-client/src/main.rs`)
+- [x] Añadir botón "Cerrar sesión" que invoque `logout()` (header)
+- [x] Mostrar `login_error` y estado `connecting` en la UI
 
 ### 2.2 Pausar/Reanudar sincronización
-- [ ] Botón "Pausar/Reanudar" conectado a `toggle_pause()` (`main.rs:317`)
-- [ ] Reflejar el estado `paused` visualmente (header/badge)
+- [x] Botón "Pausar/Reanudar" conectado a `toggle_pause()` (header)
+- [x] Reflejar el estado `paused` visualmente (badge "Pausado" en header y Dashboard)
 
 ### 2.3 Notificaciones/toasts
-- [ ] Renderizar la pila de notificaciones (`notify()` ya existe, `main.rs:465`)
-- [ ] Llamar `prune_notifications()` en cada frame (main.rs:479)
-- [ ] Cerrar con botón X y auto-descarte tras N segundos
+- [x] Renderizar la pila de notificaciones (`notify()` ya existe, área anclada arriba-derecha)
+- [x] Llamar `prune_notifications()` en cada frame
+- [x] Cerrar con botón X y auto-descarte tras 8 segundos
 
 ### 2.4 Modales de operaciones sobre archivos
-- [ ] Implementar render de `Modal` (Rename/Move/Copy/Delete/ConflictResolve, `main.rs:146`)
-- [ ] Menú contextual (clic derecho) sobre un archivo → abrir modal correspondiente
-      usando `context_menu_file`/`context_menu_pos`
-- [ ] Conectar a `network.rs`: `move_file`, `copy_file`, `resolve_conflict` ya existen
+- [x] Implementar render de `Modal` (Rename/Move/Copy/Delete/ConflictResolve)
+- [x] Menú contextual (clic derecho) sobre un archivo → abrir modal correspondiente
+- [x] Conectar a `network.rs`: `move_file`, `copy_file`, `resolve_conflict` (operación local
+      + remota con actualización de metadatos)
 
 ### 2.5 Vistas Dashboard y Devices
-- [ ] Dashboard: estado conexión, resumen archivos, tamaño, última sincronización
-      (consumir `storage/stats` de Fase 1.6)
-- [ ] Devices: lista de dispositivos usando `self.devices` (`main.rs:425`, ya se descarga
-      pero nunca se muestra) + `GET /devices` (Fase 1.5)
+- [x] Dashboard: estado conexión, resumen archivos, tamaño, última sincronización
+      (consume `storage/stats` vía cache `stats_cache.json`)
+- [x] Devices: lista de dispositivos usando `self.devices` + refresh
 
 ### 2.6 Correcciones de bugs UI
-- [ ] Conflictos: mostrar ruta del archivo, no `file_id` (`main.rs:407`)
-- [ ] Vista Conflictos accesible también en ventana estrecha (<680px, `main.rs:795`)
-- [ ] Preferencias: persistir cambios con `config.save()`; el cambio de carpeta debe
-      aplicar de verdad (reescribir `sync_root` en disco)
-- [ ] "Sincronizar ahora" debe disparar un ciclo real del `SyncEngine`, no solo log
-- [ ] Estado "Conectado": setear `connected = true` cuando el último ciclo de sync tuvo éxito
-- [ ] Eliminar o implementar el comando de selección de carpeta con `rfd` (dependencia
-      presente pero sin uso)
+- [x] Conflictos: mostrar ruta del archivo, no `file_id` (lookup en BD local)
+- [x] Vista Conflictos accesible también en ventana estrecha (<680px, ComboBox)
+- [x] Preferencias: persistir cambios con `config.save()`; cambio de carpeta recrea watcher;
+      selector de carpeta nativo con `rfd`
+- [x] "Sincronizar ahora" dispara un ciclo real del `SyncEngine` (canal wakeup interrumpible)
+- [x] Estado "Conectado": seteado desde `engine_status.json` que escribe el motor tras cada ciclo
+- [x] Selector de carpeta implementado con `rfd` en Preferencias
 
 ### 2.7 Sincronización subyacente (para pruebas reales)
-- [ ] Implementar rename/move/copy remotos en `syncfiles-client/src/sync.rs:84`
-      (hoy se descartan con "Operación remota no implementada")
-- [ ] Persistir la cola entre reinicios (hoy es solo en memoria)
+- [x] Implementar rename/move/copy remotos en `syncfiles-client/src/sync.rs`
+      (`apply_renaming` para rename/move; copy descarga contenido por path_hash)
+- [x] Persistir la cola entre reinicios (`retry_queued_ops` reprocesa payloads upload
+      en cola SQLite al iniciar y en cada ciclo; intentos incrementados, estado final en BD)
 
 ## 3. Fase 3 — Android: cablear lo ya escrito
 

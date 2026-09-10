@@ -156,6 +156,69 @@ impl MetadataStore {
         Ok(result)
     }
 
+    pub fn get_file_by_id(&self, file_id: &str) -> Result<Option<FileEntry>> {
+        let mut stmt = self.conn.prepare("SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at FROM files WHERE file_id = ?1")?;
+        let result = stmt.query_row(params![file_id], |row| {
+            Ok(FileEntry {
+                file_id: row.get(0)?,
+                user_id: row.get(1)?,
+                device_id: row.get(2)?,
+                relative_path: row.get(3)?,
+                path_hash: row.get(4)?,
+                checksum: row.get(5)?,
+                size_bytes: row.get(6)?,
+                modified_at: row.get(7)?,
+                synced_at: row.get(8)?,
+                status: row.get(9)?,
+                last_sync_version: row.get(10)?,
+                deleted_at: row.get(11)?,
+                content: None,
+            })
+        }).ok();
+        Ok(result)
+    }
+
+    pub fn get_file_by_relative_path(&self, relative_path: &str) -> Result<Option<FileEntry>> {
+        let mut stmt = self.conn.prepare("SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at FROM files WHERE relative_path = ?1")?;
+        let result = stmt.query_row(params![relative_path], |row| {
+            Ok(FileEntry {
+                file_id: row.get(0)?,
+                user_id: row.get(1)?,
+                device_id: row.get(2)?,
+                relative_path: row.get(3)?,
+                path_hash: row.get(4)?,
+                checksum: row.get(5)?,
+                size_bytes: row.get(6)?,
+                modified_at: row.get(7)?,
+                synced_at: row.get(8)?,
+                status: row.get(9)?,
+                last_sync_version: row.get(10)?,
+                deleted_at: row.get(11)?,
+                content: None,
+            })
+        }).ok();
+        Ok(result)
+    }
+
+    pub fn update_file_path(&self, file_id: &str, relative_path: &str, path_hash: &str) -> Result<()> {
+        let now = Utc::now().timestamp_millis();
+        self.conn.execute(
+            "UPDATE files SET relative_path = ?1, path_hash = ?2, modified_at = ?3 WHERE file_id = ?4",
+            params![relative_path, path_hash, now, file_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn rename_local_path(&self, old_path: &str, new_path: &str) -> Result<()> {
+        let now = Utc::now().timestamp_millis();
+        let new_hash = compute_path_hash(new_path);
+        self.conn.execute(
+            "UPDATE files SET relative_path = ?1, path_hash = ?2, modified_at = ?3 WHERE relative_path = ?4",
+            params![new_path, new_hash, now, old_path],
+        )?;
+        Ok(())
+    }
+
     pub fn queue_op(&self, queue_id: &str, file_id: &str, operation: &str, idempotency_key: &str, payload: Option<String>) -> Result<()> {
         let now = Utc::now().timestamp_millis();
         self.conn.execute(
