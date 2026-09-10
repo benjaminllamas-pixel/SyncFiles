@@ -133,7 +133,9 @@ fun FilesScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
                 contentPadding = PaddingValues(
                     start = 20.dp, end = 20.dp,
                     top = 8.dp, bottom = 24.dp

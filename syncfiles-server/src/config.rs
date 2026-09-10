@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use dotenvy::dotenv;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -34,15 +33,10 @@ impl Config {
         let server_url = std::env::var("SF_SERVER_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
 
+        // Consistente con el default de SF_DATABASE_URL ("sqlite:data/syncfiles.db"):
+        // ambos relativos al CWD para que DB y storage compartan la misma raiz "data/".
         let storage_root = std::env::var("SF_STORAGE_ROOT")
-            .unwrap_or_else(|_| {
-                dirs::data_local_dir()
-                    .unwrap_or_else(|| PathBuf::from("."))
-                    .join("syncfiles")
-                    .join("storage")
-                    .to_string_lossy()
-                    .into_owned()
-            });
+            .unwrap_or_else(|_| "data/storage".to_string());
 
         let mut users = Vec::new();
         let mut i = 0;

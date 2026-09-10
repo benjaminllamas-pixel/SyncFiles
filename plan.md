@@ -200,26 +200,49 @@ operaciones de cola sin payload.
 > Aplicado sobre la app existente de Fase 3; sin cambios funcionales, solo
 > look & feel y ergonomía.
 
-- [x] Tema oscuro "Midnight": fondo `#0B0E13`/superficies `#131820`, acento
-      índigo→cian, dynamic color (Material You) en Android 12+ con fallback
-      — `ui/theme/Theme.kt`
+- [x] Tema oscuro "Midnight" forzado: fondo `#0B0E13`/superficies `#131820`,
+      acento índigo→cian — `ui/theme/Theme.kt`
+      (corregido: antes usaba `isSystemInDarkTheme()` + dynamic color, y en
+      modo día el emulador mostraba tema claro pese a pedirse "colores
+      oscuros"; ahora `SyncFilesTheme` siempre aplica `DarkColors`)
 - [x] Base oscura real en el theme XML (sin flash blanco) + edge-to-edge
       — `res/values/themes.xml`, `MainActivity`
-- [x] Componentes compartidos: `SfCard` (borde 1dp, esquinas 20dp),
-      `SfStatusBadge` (punto de color), `formatBytes` (tamaños humanos),
-      icono por tipo de archivo — `ui/theme/Components.kt` (nuevo)
+- [x] Componentes compartidos: `ElevatedCard` (borde 1dp, esquinas 20dp, con
+      `onClick` opcional), `StatusBadge` (punto de color), `BrandGradient`,
+      `InitialsAvatar`, `formatBytes` (tamaños humanos), icono por tipo de
+      archivo — `ui/theme/Components.kt` (nuevo)
 - [x] Login con marca: logo en círculo con gradiente, campos tonal, botón
       primario 52dp — `ui/login/LoginScreen.kt`
 - [x] Home como producto: hero card de estado con gradiente, sesión compacta
       con avatar de iniciales (sin user_id/expira), FAB "Subir" —
       `ui/home/HomeScreen.kt`
+      (corregido: las cards Archivos/Conflictos de `NavigationRow` no tenían
+      `onClick` — dibujaban pero no navegaban; `ElevatedCard` recibió overload
+      clicable)
 - [x] Archivos: iconos por tipo, tamaños humanos, badges de estado —
       `ui/files/FilesScreen.kt`
 - [x] Conflictos y Ajustes al estilo consistente — `ui/conflicts/`,
       `ui/settings/`
 - [x] Verificado: `assembleDebug` OK, app en emulador sin crash en primer
       plano, tema oscuro confirmado por análisis de píxeles de screenshots
-      (~78% píxeles oscuros, promedio RGB ≈ (50, 34, 40))
+      (brillo promedio ≈37/255 con contenido visible), navegación Home→
+      Archivos/Conflictos/Ajustes funciona, downloads de los 3 archivos
+      remotos OK ("Todo al día")
+
+### 5b.1 Bug de servidor corregido: storage inconsistente con la DB
+
+- El default de `SF_STORAGE_ROOT` apuntaba a `~/Library/Application Support/
+  syncfiles/storage` (absoluto, vía crate `dirs`) mientras que
+  `SF_DATABASE_URL` default era relativo al CWD (`sqlite:data/syncfiles.db`).
+  Con el server lanzado desde `syncfiles-server/`, el diff listaba archivos
+  de la DB local pero `sync/download` buscaba el contenido en Application
+  Support → 400 "Contenido no encontrado en storage" en cada pull → la app
+  Android quedaba en "Error de sincronización: HTTP 400 Bad Request"
+  permanente.
+- Fix: default de storage ahora `data/storage` (relativo al CWD), alineado
+  con la DB; crate `dirs` eliminado de `syncfiles-server`. Verificado:
+  3/3 downloads 200 OK, app Android pasa a "Todo al día", batería E2E
+  17 PASS / 0 FAIL y 21 tests del server en verde.
 
 ## 6. Dependencias entre fases
 
