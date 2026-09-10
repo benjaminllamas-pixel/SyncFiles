@@ -140,10 +140,10 @@ class HomeViewModel(
                 val displayName = queryDisplayName(uri) ?: "upload-${System.currentTimeMillis()}"
                 val bytes = appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: throw IllegalStateException("No se pudo leer el archivo")
-                val content = String(bytes, Charsets.UTF_8)
+                val content = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
                 val relativePath = displayName
                 val pathHash = Hashing.sha256Hex(relativePath)
-                val checksum = Hashing.sha256Hex(content)
+                val checksum = Hashing.sha256Hex(bytes)
 
                 val api: SyncFilesApi = ApiClientFactory.create(serverConfig.baseUrl) {
                     active.session.sessionId
