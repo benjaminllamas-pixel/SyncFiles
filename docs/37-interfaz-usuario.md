@@ -31,14 +31,24 @@ batería E2E real (`scripts/e2e-phase5.sh`, 17 PASS / 0 FAIL; detalles en
 
 ### Android — `syncfiles-android`
 
+Rediseño **"Midnight"** (2026-09-10): paleta oscura elegante (fondo casi
+negro azulado `#0B0E13`, superficies `#131820`, acento índigo→cian) con
+dynamic color (Material You) en Android 12+, edge-to-edge con status bar
+oscura (sin flash blanco al abrir), cards con borde 1dp alpha 10% y esquinas
+20dp, icono por tipo de archivo, tamaños humanos ("1.2 MB"), badges de estado
+con punto de color, FAB "Subir" y login con logo en círculo de gradiente.
+
 | Pantalla | Contenido |
 |---|---|
-| Login | email/contraseña/URL servidor |
-| Home | estado del motor (en progreso/al día/error con timestamp), subida, "Sincronizar ahora" |
-| Archivos | lista (`/files/list`), descarga a carpeta SAF |
+| Login | email/contraseña/URL servidor, campos tonal, botón primario 52dp con gradiente |
+| Home | hero card de estado con gradiente + icono de sync, sesión compacta (email con avatar de iniciales), subida (FAB), "Sincronizar ahora" |
+| Archivos | lista (`/files/list`) con icono por tipo de archivo y tamaño humano, descarga a carpeta SAF, badges de estado |
 | Conflictos | lista (`/conflicts`), resolver mantener local/remoto (guarda copia `.conflict_*`) |
 | Ajustes | URL servidor (validada), carpeta SAF persistente, intervalo (15 min–6 h), logout |
 | Sincronización de fondo | WorkManager periódico + expedido, FileObserver de la carpeta, cola `SyncQueueStore` |
+
+Componentes compartidos del tema en `ui/theme/Components.kt`
+(`SfCard`, `SfStatusBadge`, `formatBytes`, iconos por tipo de archivo).
 
 ### Web dashboard — `syncfiles-server/static/` (servido en `/`)
 

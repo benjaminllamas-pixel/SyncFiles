@@ -1,49 +1,52 @@
 package com.syncfiles.client.android.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val LightColors = lightColorScheme(
-    primary = Color(0xFF0055A4),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFD4E3FF),
-    onPrimaryContainer = Color(0xFF001C3A),
-    secondary = Color(0xFF535F71),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD7E3F8),
-    onSecondaryContainer = Color(0xFF101C2B),
-    error = Color(0xFFBA1A1A),
-    onError = Color.White,
-    surface = Color(0xFFF9F9FF),
-    onSurface = Color(0xFF191C20)
-)
+// Paleta "Midnight" — dark elegante con acento indigo/cian
+private val IndigoLight = Color(0xFFB4C5FF)
+private val IndigoDark = Color(0xFF4A5FE8)
+private val CyanAccent = Color(0xFF6FD3FF)
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFA7C8FF),
-    onPrimary = Color(0xFF00315E),
-    primaryContainer = Color(0xFF004784),
-    onPrimaryContainer = Color(0xFFD4E3FF),
-    secondary = Color(0xFFBBC7DB),
-    onSecondary = Color(0xFF25313F),
-    secondaryContainer = Color(0xFF3C4857),
-    onSecondaryContainer = Color(0xFFD7E3F8),
+    primary = IndigoLight,
+    onPrimary = Color(0xFF0B1A78),
+    primaryContainer = IndigoDark,
+    onPrimaryContainer = Color(0xFFDEE5FF),
+    secondary = Color(0xFFC3C5D9),
+    onSecondary = Color(0xFF2D2F42),
+    secondaryContainer = Color(0xFF434558),
+    onSecondaryContainer = Color(0xFFDFE1F9),
+    tertiary = CyanAccent,
+    onTertiary = Color(0xFF00344F),
+    tertiaryContainer = Color(0xFF004B71),
+    onTertiaryContainer = Color(0xFFCCE5FF),
     error = Color(0xFFFFB4AB),
     onError = Color(0xFF690005),
-    surface = Color(0xFF111318),
-    onSurface = Color(0xFFE1E2E8)
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    background = Color(0xFF0B0E13),
+    onBackground = Color(0xFFE3E1E9),
+    surface = Color(0xFF0B0E13),
+    onSurface = Color(0xFFE3E1E9),
+    surfaceVariant = Color(0xFF131820),
+    onSurfaceVariant = Color(0xFFA6ABB8),
+    outline = Color(0xFF565B68),
+    surfaceContainer = Color(0xFF11151C),
+    surfaceContainerHigh = Color(0xFF191E27),
+    surfaceContainerHighest = Color(0xFF22272F),
+    surfaceContainerLow = Color(0xFF0E1218),
+    surfaceContainerLowest = Color(0xFF080B0F)
 )
 
 @Composable
 fun SyncFilesTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = DarkColors,
         content = content
     )
 }

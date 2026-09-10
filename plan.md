@@ -195,6 +195,32 @@ subcomandos del CLI, salida JSON de login, escaneo de reconciliación de carpeta
 local en el SyncEngine (archivos creados con el cliente apagado), y purga de
 operaciones de cola sin payload.
 
+## 5b. Rediseño UI Android "Midnight" (post-Fase 5)
+
+> Aplicado sobre la app existente de Fase 3; sin cambios funcionales, solo
+> look & feel y ergonomía.
+
+- [x] Tema oscuro "Midnight": fondo `#0B0E13`/superficies `#131820`, acento
+      índigo→cian, dynamic color (Material You) en Android 12+ con fallback
+      — `ui/theme/Theme.kt`
+- [x] Base oscura real en el theme XML (sin flash blanco) + edge-to-edge
+      — `res/values/themes.xml`, `MainActivity`
+- [x] Componentes compartidos: `SfCard` (borde 1dp, esquinas 20dp),
+      `SfStatusBadge` (punto de color), `formatBytes` (tamaños humanos),
+      icono por tipo de archivo — `ui/theme/Components.kt` (nuevo)
+- [x] Login con marca: logo en círculo con gradiente, campos tonal, botón
+      primario 52dp — `ui/login/LoginScreen.kt`
+- [x] Home como producto: hero card de estado con gradiente, sesión compacta
+      con avatar de iniciales (sin user_id/expira), FAB "Subir" —
+      `ui/home/HomeScreen.kt`
+- [x] Archivos: iconos por tipo, tamaños humanos, badges de estado —
+      `ui/files/FilesScreen.kt`
+- [x] Conflictos y Ajustes al estilo consistente — `ui/conflicts/`,
+      `ui/settings/`
+- [x] Verificado: `assembleDebug` OK, app en emulador sin crash en primer
+      plano, tema oscuro confirmado por análisis de píxeles de screenshots
+      (~78% píxeles oscuros, promedio RGB ≈ (50, 34, 40))
+
 ## 6. Dependencias entre fases
 
 ```
