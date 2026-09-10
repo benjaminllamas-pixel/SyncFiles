@@ -113,6 +113,46 @@ data class DownloadResponse(
     val file_id: String
 )
 
+data class ConflictItem(
+    val conflict_id: String,
+    val file_id: String,
+    val user_id: String,
+    val device_local: String?,
+    val device_remote: String?,
+    val local_checksum: String?,
+    val remote_checksum: String?,
+    val conflict_type: String,
+    val strategy: String,
+    val created_at: Long,
+    val resolved_at: Long?,
+    val resolved_by: String?
+)
+
+data class ConflictsResponse(
+    val conflicts: List<ConflictItem>,
+    val total: Long,
+    val server_seq: Long
+)
+
+data class FileListItem(
+    val file_id: String,
+    val relative_path: String,
+    val path_hash: String,
+    val checksum: String,
+    val size_bytes: Long,
+    val modified_at: Long,
+    val synced_at: Long?,
+    val status: String,
+    val deleted_at: Long?,
+    val device_id: String
+)
+
+data class FilesListResponse(
+    val files: List<FileListItem>,
+    val total: Long,
+    val server_seq: Long
+)
+
 interface SyncFilesApi {
 
     @POST("auth/login")
@@ -138,4 +178,10 @@ interface SyncFilesApi {
 
     @POST("conflicts/resolve")
     suspend fun resolveConflict(@Body request: ResolveConflictRequest): ApiResponse<Unit>
+
+    @GET("conflicts")
+    suspend fun conflicts(): ConflictsResponse
+
+    @GET("files/list")
+    suspend fun filesList(): FilesListResponse
 }

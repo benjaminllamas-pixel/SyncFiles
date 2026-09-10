@@ -1,7 +1,7 @@
 package com.syncfiles.client.android
 
 import android.app.Application
-import com.syncfiles.client.android.data.api.ApiClientFactory
+import com.syncfiles.client.android.data.local.SyncEngine
 import com.syncfiles.client.android.data.storage.SessionStore
 
 class SyncFilesApplication : Application() {
@@ -15,9 +15,14 @@ class SyncFilesApplication : Application() {
     }
 
     val sessionStore: SessionStore by lazy { SessionStore(this) }
+    val syncEngine: SyncEngine by lazy { SyncEngine(this) }
 
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // Si hay sesión guardada, arranca el motor de fondo (watcher + WorkManager)
+        if (sessionStore.getActiveSession() != null) {
+            syncEngine.start()
+        }
     }
 }

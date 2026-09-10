@@ -107,6 +107,10 @@ class SessionStore(context: Context) {
         get() = prefs.getLong(KEY_LAST_SERVER_SEQ, 0L)
         set(value) { prefs.edit().putLong(KEY_LAST_SERVER_SEQ, value).apply() }
 
+    var syncIntervalMinutes: Long
+        get() = prefs.getLong(KEY_SYNC_INTERVAL, DEFAULT_SYNC_INTERVAL_MINUTES)
+        set(value) { prefs.edit().putLong(KEY_SYNC_INTERVAL, value.coerceIn(15, 24 * 60)).apply() }
+
     companion object {
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_SESSION_ID = "session_id"
@@ -116,5 +120,8 @@ class SessionStore(context: Context) {
         private const val KEY_LAST_SERVER_SEQ = "last_server_seq"
         private const val KEY_SYNC_ROOT_URI = "sync_root_uri"
         private const val KEY_SYNC_ROOT_NAME = "sync_root_name"
+        private const val KEY_SYNC_INTERVAL = "sync_interval_minutes"
+
+        const val DEFAULT_SYNC_INTERVAL_MINUTES = 15L
     }
 }

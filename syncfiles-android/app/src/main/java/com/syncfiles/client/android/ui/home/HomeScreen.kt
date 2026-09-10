@@ -18,12 +18,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -38,11 +40,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.syncfiles.client.android.R
 import com.syncfiles.client.android.data.api.ChangeEntry
+import com.syncfiles.client.android.data.local.SyncStatus
 import kotlinx.coroutines.flow.StateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -52,13 +56,17 @@ import java.util.Locale
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
-    onSessionExpired: () -> Unit
+    onSessionExpired: () -> Unit,
+    onOpenFiles: () -> Unit = {},
+    onOpenConflicts: () -> Unit = {},
+    onOpenSettings: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val changes by viewModel.changes.collectAsStateWithLifecycle()
     val syncInFlight by viewModel.syncInFlight.collectAsStateWithLifecycle()
     val uploadInFlight by viewModel.uploadInFlight.collectAsStateWithLifecycle()
     val lastMessage by viewModel.lastMessage.collectAsStateWithLifecycle()
+    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     val pickFileLauncher = rememberLauncherForActivityResult(
@@ -73,6 +81,11 @@ fun HomeScreen(
         uri?.let {
             viewModel.onSyncRootPicked(it)
         }
+    }
+
+    // Refresca el estado de sincronización al volver al frente y tras cada mensaje
+    LaunchedEffect(lastMessage) {
+        viewModel.refreshSyncStatus()
     }
 
     LaunchedEffect(state) {
@@ -93,8 +106,11 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("SyncFiles") },
                 actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Ajustes")
+                    }
                     OutlinedButton(
-                        onClick = { viewModel.logout { } },
+                        onClick = { viewModel.logout { onSessionExpired() } },
                         modifier = Modifier.padding(end = 8.dp)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
@@ -124,6 +140,10 @@ fun HomeScreen(
 
                 is HomeUiState.Active -> {
                     SessionCard(s)
+                    SyncStatusCard(
+                        status = syncStatus,
+                        onRefreshStatus = { viewModel.refreshSyncStatus() }
+                    )
                     SyncRootCard(
                         name = viewModel.syncRootName,
                         onPick = { pickFolderLauncher.launch(null) }
@@ -134,6 +154,10 @@ fun HomeScreen(
                         onSync = { viewModel.syncNow() },
                         onPick = { pickFileLauncher.launch(arrayOf("*/*")) }
                     )
+                    NavigationRow(
+                        onOpenFiles = onOpenFiles,
+                        onOpenConflicts = onOpenConflicts
+                    )
                     ChangesList(changes = changes)
                 }
 
@@ -141,6 +165,96 @@ fun HomeScreen(
                     Text(stringResource(R.string.session_expired))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SyncStatusCard(
+    status: SyncStatus,
+    onRefreshStatus: () -> Unit
+) {
+    val (color, label) = when (status.state) {
+        SyncStatus.STATE_IN_PROGRESS -> Pair(
+            MaterialTheme.colorScheme.tertiaryContainer,
+            "Sincronizando…"
+        )
+        SyncStatus.STATE_UP_TO_DATE -> Pair(
+            MaterialTheme.colorScheme.primaryContainer,
+            "Al día"
+        )
+        SyncStatus.STATE_ERROR -> Pair(
+            MaterialTheme.colorScheme.errorContainer,
+            "Error de sincronización"
+        )
+        SyncStatus.STATE_PAUSED -> Pair(
+            MaterialTheme.colorScheme.surfaceVariant,
+            "Pausado"
+        )
+        else -> Pair(MaterialTheme.colorScheme.surfaceVariant, "Sin sincronizar aún")
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = color),
+        onClick = onRefreshStatus
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleSmall
+            )
+            if (status.state == SyncStatus.STATE_IN_PROGRESS) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(
+                    formatTimestamp(status.updatedAt),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        status.message?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 12.dp, bottom = 12.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun NavigationRow(
+    onOpenFiles: () -> Unit,
+    onOpenConflicts: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedButton(
+            onClick = onOpenFiles,
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(Icons.Filled.FolderOpen, contentDescription = null)
+            Spacer(Modifier.size(6.dp))
+            Text("Archivos")
+        }
+        OutlinedButton(
+            onClick = onOpenConflicts,
+            modifier = Modifier.weight(1f)
+        ) {
+            Text("Conflictos")
         }
     }
 }
@@ -215,7 +329,7 @@ private fun SyncRootCard(
                     text = stringResource(R.string.sync_root_label),
                     style = MaterialTheme.typography.titleSmall
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(Modifier.height(4.dp))
                 Text(
                     text = rootName ?: stringResource(R.string.sync_root_not_set),
                     style = MaterialTheme.typography.bodyMedium
@@ -223,7 +337,7 @@ private fun SyncRootCard(
             }
             OutlinedButton(onClick = onPick) {
                 Icon(Icons.Filled.FolderOpen, contentDescription = null)
-                Spacer(modifier = Modifier.size(6.dp))
+                Spacer(Modifier.size(6.dp))
                 Text(stringResource(R.string.sync_root_pick))
             }
         }

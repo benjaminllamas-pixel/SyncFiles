@@ -89,15 +89,35 @@
 
 > El app ya tiene login/home/subir/sincronizar manual; falta el fondo y las vistas.
 
-- [ ] 3.1 Enqueuear `SyncWorker` (WorkManager) — periodic + constraints de red
-- [ ] 3.2 Instanciar `FileWatcher` (FileObserver) para detectar cambios en la carpeta elegida
-- [ ] 3.3 Conectar `SyncQueueStore` con el worker (ya ambos existen, sin uso)
-- [ ] 3.4 Añadir pantalla de conflictos usando `resolveConflict` (ya en `SyncFilesApi.kt`,
+- [x] 3.1 Enqueuear `SyncWorker` (WorkManager) — periodic + constraints de red
+      — `SyncScheduler.kt` (nuevo): periódico con intervalo configurable en Ajustes
+      (15 min por defecto, política `ExistingPeriodicWorkPolicy.UPDATE`) + one-shot
+      expedited `syncNow()` con `NetworkType.CONNECTED`
+- [x] 3.2 Instanciar `FileWatcher` (FileObserver) para detectar cambios en la carpeta elegida
+      — `FileWatcher` reescrito: observa la ruta SAF subyacente del `DocumentFile` (si no se
+      puede resolver la ruta física, queda inactivo y se usa el escaneo manual; FileObserver
+      no funciona directamente con URIs de SAF)
+- [x] 3.3 Conectar `SyncQueueStore` con el worker (ya ambos existen, sin uso)
+      — nuevo `SyncEngine` (singleton en `SyncFilesApplication`) que cablea watcher → cola →
+      worker; el watcher encola upload/delete por `path_hash` y dispara `syncNow()`;
+      el worker procesa `queued` + `retry`, hace pull remoto (diff + download + delete local)
+      y actualiza metadatos en `LocalFileSyncStore`
+- [x] 3.4 Añadir pantalla de conflictos usando `resolveConflict` (ya en `SyncFilesApi.kt`,
       sin llamadas)
-- [ ] 3.5 Añadir botón de descarga / vista de archivos usando `download` (ya en la API,
+      — `ui/conflicts/`: lista desde `GET /conflicts` (endpoint añadido a la API), resolución
+      keep_local/keep_remote con `preserve_alternative=true` (guarda copia `.conflict_*`)
+- [x] 3.5 Añadir botón de descarga / vista de archivos usando `download` (ya en la API,
       sin llamadas)
-- [ ] 3.6 Pantalla de ajustes: URL servidor, carpeta, intervalo, logout
-- [ ] 3.7 Indicador de estado de sincronización (en progreso / al día / error)
+      — `ui/files/`: lista desde `GET /files/list` (endpoint añadido), botón Descargar →
+      `POST /sync/download` guardando el contenido en la carpeta sincronizada
+- [x] 3.6 Pantalla de ajustes: URL servidor, carpeta, intervalo, logout
+      — `ui/settings/`: URL validada contra `session/status` (guarda aunque falle la
+      validación), carpeta SAF con `takePersistableUriPermission`, intervalo (chips
+      15 min/30 min/1 h/6 h), logout detiene el motor
+- [x] 3.7 Indicador de estado de sincronización (en progreso / al día / error)
+      — `SyncStatusStore` (SharedPreferences) escrito por el worker en cada ciclo;
+      Home muestra tarjeta de estado con color, timestamp del último ciclo y mensaje
+      de error; "Sincronizar ahora" dispara también el worker
 
 ## 4. Fase 4 — Web dashboard mínimo (servido desde syncfiles-server)
 

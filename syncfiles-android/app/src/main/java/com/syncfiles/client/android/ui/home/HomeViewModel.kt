@@ -7,6 +7,7 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.syncfiles.client.android.SyncScheduler
 import com.syncfiles.client.android.data.api.ApiClientFactory
 import com.syncfiles.client.android.data.api.ApiResponse
 import com.syncfiles.client.android.data.api.ChangeEntry
@@ -14,6 +15,9 @@ import com.syncfiles.client.android.data.api.DiffRequest
 import com.syncfiles.client.android.data.api.SyncFilesApi
 import com.syncfiles.client.android.data.api.UploadRequest
 import com.syncfiles.client.android.data.local.LocalFileSyncStore
+import com.syncfiles.client.android.data.local.SyncEngine
+import com.syncfiles.client.android.data.local.SyncStatus
+import com.syncfiles.client.android.data.local.SyncStatusStore
 import com.syncfiles.client.android.data.storage.SessionStore
 import com.syncfiles.client.android.data.storage.StoredSession
 import com.syncfiles.client.android.data.util.Hashing
@@ -36,6 +40,8 @@ class HomeViewModel(
     private val localStore: LocalFileSyncStore
 ) : ViewModel() {
 
+    private val syncStatusStore = SyncStatusStore(appContext)
+
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
@@ -54,9 +60,17 @@ class HomeViewModel(
     private val _syncRootName = MutableStateFlow<String?>(null)
     val syncRootName: StateFlow<String?> = _syncRootName.asStateFlow()
 
+    private val _syncStatus = MutableStateFlow(syncStatusStore.get())
+    val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
+
     init {
         checkSession()
         _syncRootName.value = store.getSyncRootName()
+        refreshSyncStatus()
+    }
+
+    fun refreshSyncStatus() {
+        _syncStatus.value = syncStatusStore.get()
     }
 
     fun checkSession() {
@@ -106,10 +120,13 @@ class HomeViewModel(
                 _changes.value = resp.changes
                 store.lastServerSeq = resp.server_seq
                 _lastMessage.value = "Sincronización: ${resp.changes.size} cambios"
+                // Dispara también el worker (cola + descargas al sync root)
+                SyncScheduler.syncNow(appContext)
             } catch (e: Exception) {
                 _lastMessage.value = "Error al sincronizar: ${e.message}"
             } finally {
                 _syncInFlight.value = false
+                refreshSyncStatus()
             }
         }
     }
@@ -172,6 +189,10 @@ class HomeViewModel(
         store.saveSyncRoot(uri.toString(), displayName)
         _syncRootName.value = displayName
         _lastMessage.value = "Carpeta sincronizada: $displayName"
+
+        // Reinicia el watcher sobre la nueva carpeta
+        (appContext as? com.syncfiles.client.android.SyncFilesApplication)
+            ?.syncEngine?.onSyncRootChanged()
 
         viewModelScope.launch {
             try {

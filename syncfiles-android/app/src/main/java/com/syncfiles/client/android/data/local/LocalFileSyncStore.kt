@@ -59,6 +59,13 @@ class LocalFileSyncStore(context: Context) {
         }
     }
 
+    fun deleteByPathHash(pathHash: String) {
+        db.compileStatement("DELETE FROM files WHERE path_hash = ?").use { stmt ->
+            stmt.bindString(1, pathHash)
+            stmt.executeUpdateDelete()
+        }
+    }
+
     fun listAll(): List<LocalFile> {
         return db.query("files", null, null, null, null, null, "relative_path ASC").use { cursor ->
             buildList {
