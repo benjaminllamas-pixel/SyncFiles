@@ -122,16 +122,40 @@
 ## 4. Fase 4 — Web dashboard mínimo (servido desde syncfiles-server)
 
 > Decisión previa: servir desde el propio servidor Rust (sin Node) para pruebas.
+> Implementado como SPA vanilla (HTML/CSS/JS sin build step) en `syncfiles-server/static/`,
+> servida en `/` (alias `/ui` → redirect) con `actix-files`. Arranca desde la raíz del
+> repo o desde `syncfiles-server/`; sobreescribible con `SF_STATIC_DIR`.
 
-- [ ] 4.1 Servir `static/` con `actix-files` (`Files::new("/ui", "./static")`)
-- [ ] 4.2 Login (contra `/auth/login`) con manejo de sesión (localStorage + Bearer)
-- [ ] 4.3 Vista Dashboard: estado del servidor, storage stats, dispositivos
-- [ ] 4.4 Vista Archivos: tabla con lista (`/files/list`), descarga (`/sync/download`),
+- [x] 4.1 Servir `static/` con `actix-files` (`Files::new("/", ...)`, index `index.html`;
+      alias `web::redirect("/ui", "/")`; fallback a `./syncfiles-server/static` si el CWD
+      es la raíz del repo; `SF_STATIC_DIR` opcional)
+- [x] 4.2 Login (contra `/auth/login`) con manejo de sesión (localStorage + Bearer)
+      (`static/app.js`: form con email/password/URL servidor, `sf_token`/`sf_server`/
+      `sf_device` en localStorage, `Authorization: Bearer` en todas las llamadas,
+      restauración de sesión con `/session/status`, logout con `/auth/logout`)
+- [x] 4.3 Vista Dashboard: estado del servidor, storage stats, dispositivos
+      (tarjetas Servidor/Almacenamiento/Última modificación vía `/storage/stats`;
+      tabla de dispositivos vía `/devices`; badge Conectado/Sin conectar;
+      auto-refresh cada 15 s)
+- [x] 4.4 Vista Archivos: tabla con lista (`/files/list`), descarga (`/sync/download`),
       borrado (`/sync/delete`)
-- [ ] 4.5 Vista Conflictos: listar y resolver (`/conflicts` + `/conflicts/resolve`)
-- [ ] 4.6 Vista Actividad: log de eventos (`/activity`)
-- [ ] 4.7 Responsive mínimo ( móvil ) para poder probar desde el navegador del teléfono
-- [ ] 4.8 Activar CORS para permitir pruebas desde otros orígenes (Fase 1.7)
+      (checkbox "Mostrar borrados" → `?include_deleted=true`; descarga base64 → Blob →
+      `a[download]`; borrado con confirmación; toasts de éxito/error)
+- [x] 4.5 Vista Conflictos: listar y resolver (`/conflicts` + `/conflicts/resolve`)
+      (tarjetas con tipo/checksums/dispositivos/fecha; botones Mantener local /
+      Mantener remoto / Local + copia alternativa (`preserve_alternative=true`);
+      badge contador en la navegación)
+- [x] 4.6 Vista Actividad: log de eventos (`/activity`)
+      (últimos 100 eventos: fecha, `event_name`, dispositivo, payload truncado)
+- [x] 4.7 Responsive mínimo ( móvil ) para poder probar desde el navegador del teléfono
+      (nav lateral deslizable < 720px con overlay; acciones de fila como segunda línea;
+      tarjetas apiladas < 460px; `viewport-fit=cover`; soporte dark mode)
+- [x] 4.8 Activar CORS para permitir pruebas desde otros orígenes (Fase 1.7)
+      (ya estaba activo desde Fase 1; verificado con test `login_via_web_flow_returns_session`
+      y curl con cabecera `Origin`)
+- [x] 4.9 Tests de integración — `syncfiles-server/tests/static_dashboard.rs`
+      (6 tests: index servido, assets servidos, redirect `/ui`, login con CORS,
+      404 JSON en API, 404 de archivo inexistente; total server: 15 tests OK)
 
 ## 5. Fase 5 — Pruebas E2E reales
 
@@ -179,4 +203,5 @@ Fase 1 (server) ──► Fase 2 (desktop) ──┐
 | Cliente de red desktop (métodos ya listos) | `syncfiles-client/src/network.rs` |
 | API Android no consumida | `syncfiles-android/.../SyncFilesApi.kt` (download, resolveConflict) |
 | Worker/Watcher/Queue Android sin cablear | `SyncWorker.kt`, `FileWatcher.kt`, `SyncQueueStore.kt` |
+| Web dashboard (Fase 4) | `syncfiles-server/static/` (index.html, app.js, styles.css), `main.rs` (serving + redirect), `tests/static_dashboard.rs` |
 | Smoke test E2E actual | `scripts/e2e-test.sh` |

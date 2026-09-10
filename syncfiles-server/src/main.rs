@@ -1,3 +1,5 @@
+use actix_files::Files;
+use actix_web::web;
 use anyhow::Result;
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -15,35 +17,57 @@ async fn main() -> Result<()> {
     tracing::info!("Servidor SyncFiles iniciado en {}", app_config.bind_address);
 
     let bind = app_config.bind_address;
+    let static_dir = std::env::var("SF_STATIC_DIR")
+        .ok()
+        .filter(|p| std::path::Path::new(p).is_dir())
+        .or_else(|| {
+            ["./static", "./syncfiles-server/static"]
+                .iter()
+                .find(|p| std::path::Path::new(p).is_dir())
+                .map(|p| p.to_string())
+        })
+        .unwrap_or_else(|| {
+            tracing::warn!("Carpeta static/ no encontrada: el dashboard web no se servirá");
+            "./static".to_string()
+        });
+    tracing::info!("Sirviendo dashboard web desde {}", static_dir);
 
     actix_web::HttpServer::new(move || {
         let cors = actix_cors::Cors::permissive()
             .supports_credentials()
             .max_age(3600);
 
+        let static_dir = static_dir.clone();
+
         actix_web::App::new()
             .wrap(cors)
             .app_data(actix_web::web::Data::new(app_state.clone()))
             .service(
-                actix_web::web::scope("/api/v1")
-                    .route("/auth/login", actix_web::web::post().to(syncfiles_server::handlers::login_handler))
-                    .route("/auth/logout", actix_web::web::post().to(syncfiles_server::handlers::logout_handler))
-                    .route("/session/status", actix_web::web::get().to(syncfiles_server::handlers::session_status_handler))
-                    .route("/sync/diff", actix_web::web::post().to(syncfiles_server::handlers::diff_handler))
-                    .route("/sync/upload", actix_web::web::post().to(syncfiles_server::handlers::upload_handler))
-                    .route("/sync/download", actix_web::web::post().to(syncfiles_server::handlers::download_handler))
-                    .route("/sync/delete", actix_web::web::post().to(syncfiles_server::handlers::delete_handler))
-                    .route("/sync/rename", actix_web::web::post().to(syncfiles_server::handlers::rename_handler))
-                    .route("/sync/move", actix_web::web::post().to(syncfiles_server::handlers::move_handler))
-                    .route("/sync/copy", actix_web::web::post().to(syncfiles_server::handlers::copy_handler))
-                    .route("/files/list", actix_web::web::get().to(syncfiles_server::handlers::files_list_handler))
-                    .route("/queue", actix_web::web::get().to(syncfiles_server::handlers::queue_handler))
-                    .route("/activity", actix_web::web::get().to(syncfiles_server::handlers::activity_handler))
-                    .route("/conflicts", actix_web::web::get().to(syncfiles_server::handlers::conflicts_handler))
-                    .route("/devices", actix_web::web::get().to(syncfiles_server::handlers::devices_handler))
-                    .route("/storage/stats", actix_web::web::get().to(syncfiles_server::handlers::storage_stats_handler))
-                    .route("/conflicts/resolve", actix_web::web::post().to(syncfiles_server::handlers::resolve_conflict_handler))
-                    .default_service(actix_web::web::route().to(syncfiles_server::handlers::not_found))
+                web::scope("/api/v1")
+                    .route("/auth/login", web::post().to(syncfiles_server::handlers::login_handler))
+                    .route("/auth/logout", web::post().to(syncfiles_server::handlers::logout_handler))
+                    .route("/session/status", web::get().to(syncfiles_server::handlers::session_status_handler))
+                    .route("/sync/diff", web::post().to(syncfiles_server::handlers::diff_handler))
+                    .route("/sync/upload", web::post().to(syncfiles_server::handlers::upload_handler))
+                    .route("/sync/download", web::post().to(syncfiles_server::handlers::download_handler))
+                    .route("/sync/delete", web::post().to(syncfiles_server::handlers::delete_handler))
+                    .route("/sync/rename", web::post().to(syncfiles_server::handlers::rename_handler))
+                    .route("/sync/move", web::post().to(syncfiles_server::handlers::move_handler))
+                    .route("/sync/copy", web::post().to(syncfiles_server::handlers::copy_handler))
+                    .route("/files/list", web::get().to(syncfiles_server::handlers::files_list_handler))
+                    .route("/queue", web::get().to(syncfiles_server::handlers::queue_handler))
+                    .route("/activity", web::get().to(syncfiles_server::handlers::activity_handler))
+                    .route("/conflicts", web::get().to(syncfiles_server::handlers::conflicts_handler))
+                    .route("/devices", web::get().to(syncfiles_server::handlers::devices_handler))
+                    .route("/storage/stats", web::get().to(syncfiles_server::handlers::storage_stats_handler))
+                    .route("/conflicts/resolve", web::post().to(syncfiles_server::handlers::resolve_conflict_handler))
+                    .default_service(web::route().to(syncfiles_server::handlers::not_found))
+            )
+            .service(web::redirect("/ui", "/"))
+            .service(
+                Files::new("/", &static_dir)
+                    .index_file("index.html")
+                    .redirect_to_slash_directory(),
             )
     })
     .bind(&bind)?

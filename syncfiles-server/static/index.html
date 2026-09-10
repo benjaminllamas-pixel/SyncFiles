@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>SyncFiles — Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Login -->
+  <section id="login-view" class="login-view hidden">
+    <form id="login-form" class="login-card" autocomplete="on">
+      <h1 class="brand">Sync<span>Files</span></h1>
+      <p class="muted" id="login-server-hint"></p>
+      <label for="login-email">Correo</label>
+      <input id="login-email" type="email" placeholder="usuario@ejemplo.com" required autocomplete="username">
+      <label for="login-password">Contraseña</label>
+      <input id="login-password" type="password" placeholder="••••••••" required autocomplete="current-password">
+      <label for="login-server">URL del servidor</label>
+      <input id="login-server" type="url" placeholder="http://127.0.0.1:8080" required>
+      <button type="submit" class="btn primary" id="login-submit">Iniciar sesión</button>
+      <p id="login-error" class="error hidden" role="alert"></p>
+    </form>
+  </section>
+
+  <!-- App -->
+  <div id="app-view" class="app hidden">
+    <header class="topbar">
+      <button id="nav-toggle" class="icon-btn" aria-label="Abrir menú">☰</button>
+      <h1 class="brand small">Sync<span>Files</span></h1>
+      <span id="conn-badge" class="badge offline" title="Estado de conexión">Sin conectar</span>
+      <button id="logout-btn" class="btn ghost small-btn">Cerrar sesión</button>
+    </header>
+
+    <nav id="nav" class="nav">
+      <a href="#" data-view="dashboard" class="nav-link active">Dashboard</a>
+      <a href="#" data-view="files" class="nav-link">Archivos</a>
+      <a href="#" data-view="conflicts" class="nav-link">Conflictos <span id="conflict-count" class="count hidden">0</span></a>
+      <a href="#" data-view="activity" class="nav-link">Actividad</a>
+    </nav>
+
+    <main id="main" class="main">
+      <!-- Dashboard -->
+      <section id="view-dashboard" class="view">
+        <h2>Dashboard</h2>
+        <div id="dash-error" class="error hidden"></div>
+        <div class="cards" id="dash-cards">
+          <div class="card">
+            <h3>Servidor</h3>
+            <p id="dash-server-state" class="big">—</p>
+            <p class="muted" id="dash-server-url"></p>
+          </div>
+          <div class="card">
+            <h3>Almacenamiento</h3>
+            <p id="dash-storage-used" class="big">—</p>
+            <p class="muted" id="dash-storage-files"></p>
+          </div>
+          <div class="card">
+            <h3>Última modificación</h3>
+            <p id="dash-last-mod" class="big">—</p>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Dispositivos</h3>
+          <div class="table-wrap">
+            <table id="devices-table">
+              <thead>
+                <tr><th>Dispositivo</th><th>Plataforma</th><th>Sesiones activas</th><th>Última conexión</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p id="devices-empty" class="muted hidden">Sin dispositivos registrados.</p>
+        </div>
+      </section>
+
+      <!-- Files -->
+      <section id="view-files" class="view hidden">
+        <div class="view-head">
+          <h2>Archivos</h2>
+          <div class="view-actions">
+            <label class="toggle">
+              <input type="checkbox" id="files-show-deleted"> Mostrar borrados
+            </label>
+            <button id="files-refresh" class="btn ghost">Actualizar</button>
+          </div>
+        </div>
+        <div id="files-error" class="error hidden"></div>
+        <div class="card">
+          <div class="table-wrap">
+            <table id="files-table">
+              <thead>
+                <tr><th>Ruta</th><th class="num">Tamaño</th><th>Modificado</th><th>Estado</th><th class="actions-col">Acciones</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p id="files-empty" class="muted hidden">Sin archivos sincronizados todavía.</p>
+        </div>
+      </section>
+
+      <!-- Conflicts -->
+      <section id="view-conflicts" class="view hidden">
+        <div class="view-head">
+          <h2>Conflictos</h2>
+          <button id="conflicts-refresh" class="btn ghost">Actualizar</button>
+        </div>
+        <div id="conflicts-error" class="error hidden"></div>
+        <div id="conflicts-list" class="conflict-list"></div>
+        <p id="conflicts-empty" class="muted hidden">No hay conflictos sin resolver. Todo en orden.</p>
+      </section>
+
+      <!-- Activity -->
+      <section id="view-activity" class="view hidden">
+        <div class="view-head">
+          <h2>Actividad</h2>
+          <button id="activity-refresh" class="btn ghost">Actualizar</button>
+        </div>
+        <div id="activity-error" class="error hidden"></div>
+        <div class="card">
+          <div class="table-wrap">
+            <table id="activity-table">
+              <thead>
+                <tr><th>Fecha</th><th>Evento</th><th>Dispositivo</th><th>Detalle</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p id="activity-empty" class="muted hidden">Sin eventos registrados.</p>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden" role="status"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
