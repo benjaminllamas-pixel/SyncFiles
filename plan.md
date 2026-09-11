@@ -244,7 +244,46 @@ operaciones de cola sin payload.
   3/3 downloads 200 OK, app Android pasa a "Todo al día", batería E2E
   17 PASS / 0 FAIL y 21 tests del server en verde.
 
-## 6. Dependencias entre fases
+## 6. Fase 6 — Web: funcionalidades faltantes (completada 2026-09-11)
+
+> Implementada. Inventario previo: la web (static/app.js) solo cubría
+> login/logout, sesión, dashboard (stats/dispositivos), listar/descargar/borrar
+> archivos, resolver conflictos y actividad. Se añadieron los endpoints que el
+> server ya exponía más uno nuevo (`POST /devices/revoke`).
+
+- [x] 6.1 Subir archivos — `POST /sync/upload`
+      (dropzone con click/teclado/drag&drop en vista Archivos; SHA-256 vía
+      SubtleCrypto, base64 real para binarios, barra de progreso por archivo)
+- [x] 6.2 Renombrar archivos — `POST /sync/rename`
+      (acción de fila; modal con nuevo nombre, conserva carpeta)
+- [x] 6.3 Mover archivos — `POST /sync/move`
+      (acción de fila; modal con nueva ruta)
+- [x] 6.4 Copiar archivos — `POST /sync/copy`
+      (acción de fila; modal con destino sugerido `<nombre>.copia`)
+- [x] 6.5 Vista Cola — `GET /queue`
+      (nueva vista en navegación con tabla archivo/operación/dispositivo/estado/
+      intentos/error, filtro "Solo pendientes" (`?status=pending`), auto-refresh 15 s)
+- [x] 6.6 Diff de sincronización — `POST /sync/diff`
+      (badge "Desactualizado" por archivo + hint con número de cambios no aplicados
+      en el navegador; falla silenciosa si el diff no está disponible)
+- [x] 6.7 Gestión de dispositivos/sesiones
+      (nuevo endpoint `POST /api/v1/devices/revoke` en el server: revoca todas las
+      sesiones activas de un dispositivo del usuario, bloquea revocar el propio
+      dispositivo, audita `device.revoked`; botón "Revocar" en la tabla
+      Dispositivos del Dashboard con confirmación)
+- [ ] 6.8 Registro de usuarios (opcional, diferido a V2)
+      (no expuesto en la API actual; requiere endpoint nuevo `POST /auth/register`
+      + decisión de UX sobre dónde colocarlo en el login)
+- [x] 6.9 Tests de integración para lo nuevo
+      (api_endpoints.rs: upload binario round-trip, rename, move, copy, diff,
+      revoke —happy path, propio dispositivo, inexistente, token inválido—;
+      static_dashboard.rs: presencia de dropzone/vista Cola/modal/hint y de las
+      llamadas a los 7 endpoints en app.js; 30 tests server en verde)
+- [x] 6.10 Verificación manual responsive de las vistas nuevas (móvil)
+      (acciones de fila y revocar en segunda línea < 720px, dropzone compacta,
+      modal max-width 420px)
+
+## 7. Dependencias entre fases
 
 ```
 Fase 1 (server) ──► Fase 2 (desktop) ──┐
@@ -256,8 +295,10 @@ Fase 1 (server) ──► Fase 2 (desktop) ──┐
 - Fase 2/3/4 pueden avanzar en paralelo una vez terminada la Fase 1
 - Los items 2.7 y 3.1–3.3 (motor de sync de fondo) son prerrequisito de los
   escenarios 5.3–5.5
+- Fase 6 (web) consumió los endpoints ya existentes (Fase 1 completa) y añadió
+  `POST /devices/revoke` en el server; 6.8 (registro) quedó diferido a V2
 
-## 7. Orden sugerido de ejecución
+## 8. Orden sugerido de ejecución
 
 1. Fase 1 completa (habilita todo lo demás)
 2. Fase 2.1–2.6 (desktop usable con lo existente) → primera prueba manual
@@ -265,8 +306,9 @@ Fase 1 (server) ──► Fase 2 (desktop) ──┐
 4. Fase 3.1–3.4 (Android funcional en fondo)
 5. Fase 4 (web mínimo)
 6. Fase 5 (batería de pruebas E2E)
+7. Fase 6 (web: funcionalidades faltantes)
 
-## 8. Referencias de código
+## 9. Referencias de código
 
 | Qué | Dónde |
 |---|---|
@@ -277,4 +319,5 @@ Fase 1 (server) ──► Fase 2 (desktop) ──┐
 | API Android no consumida | `syncfiles-android/.../SyncFilesApi.kt` (download, resolveConflict) |
 | Worker/Watcher/Queue Android sin cablear | `SyncWorker.kt`, `FileWatcher.kt`, `SyncQueueStore.kt` |
 | Web dashboard (Fase 4) | `syncfiles-server/static/` (index.html, app.js, styles.css), `main.rs` (serving + redirect), `tests/static_dashboard.rs` |
+| Web completa (Fase 6) | `syncfiles-server/static/app.js` (upload SHA-256+base64, rename/move/copy con modal, vista Cola, diff badge, revoke), `syncfiles-server/src/handlers.rs` (`revoke_device_handler`), `tests/api_endpoints.rs` |
 | Smoke test E2E actual | `scripts/e2e-test.sh` |

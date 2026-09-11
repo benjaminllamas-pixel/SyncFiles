@@ -56,6 +56,7 @@ async fn make_app(
                     .route("/activity", web::get().to(handlers::activity_handler))
                     .route("/conflicts", web::get().to(handlers::conflicts_handler))
                     .route("/devices", web::get().to(handlers::devices_handler))
+                    .route("/devices/revoke", web::post().to(handlers::revoke_device_handler))
                     .route("/storage/stats", web::get().to(handlers::storage_stats_handler))
                     .route("/conflicts/resolve", web::post().to(handlers::resolve_conflict_handler))
                     .default_service(web::route().to(handlers::not_found))
@@ -291,4 +292,321 @@ async fn new_endpoints_reject_bad_tokens() {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401, "esperaba 401 para {}", uri);
     }
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/devices/revoke")
+        .insert_header(("Authorization", "Bearer token-invalido"))
+        .set_json(serde_json::json!({
+            "session_id": "token-invalido",
+            "device_id": DEVICE_ID,
+            "target_device_id": "otro",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401);
+}
+
+#[actix_web::test]
+async fn upload_binary_content_round_trips_via_download() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+
+    // Contenido binario no-UTF8 seguro: bytes 0..255
+    let content: Vec<u8> = (0..=255u8).collect();
+    let checksum = syncfiles_models::compute_checksum(&content);
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/upload")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": "",
+            "relative_path": "bin/blob.dat",
+            "path_hash": syncfiles_models::compute_path_hash("bin/blob.dat"),
+            "checksum": checksum,
+            "size_bytes": content.len() as i64,
+            "modified_at": syncfiles_models::now_ms(),
+            "idempotency_key": syncfiles_models::uuid_str(),
+            "content": base64::engine::general_purpose::STANDARD.encode(&content),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(resp["status"], "ok");
+
+    let files_req = auth_get(&token, "/api/v1/files/list").to_request();
+    let files: Value = test::call_and_read_body_json(&app, files_req).await;
+    let entry = files["files"].as_array().unwrap().iter()
+        .find(|f| f["relative_path"] == "bin/blob.dat")
+        .expect("archivo subido debe aparecer en files/list");
+    let file_id = entry["file_id"].as_str().unwrap().to_string();
+    let path_hash = entry["path_hash"].as_str().unwrap().to_string();
+
+    let dl_req = test::TestRequest::post()
+        .uri("/api/v1/sync/download")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": file_id,
+            "path_hash": path_hash,
+            "idempotency_key": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let dl: Value = test::call_and_read_body_json(&app, dl_req).await;
+    let b64 = dl["content"].as_str().unwrap();
+    let decoded = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+    assert_eq!(decoded, content, "el binario debe sobrevivir upload→download");
+}
+
+#[actix_web::test]
+async fn rename_moves_file_path() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+    let up = upload(&app, &token, "docs/viejo.txt", "contenido").await;
+    assert_eq!(up["status"], "ok");
+
+    let files: Value = {
+        let req = auth_get(&token, "/api/v1/files/list").to_request();
+        test::call_and_read_body_json(&app, req).await
+    };
+    let file_id = files["files"].as_array().unwrap().iter()
+        .find(|f| f["relative_path"] == "docs/viejo.txt")
+        .expect("archivo")
+        ["file_id"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/rename")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": file_id,
+            "old_path": "docs/viejo.txt",
+            "new_path": "docs/nuevo.txt",
+            "idempotency_key": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(resp["status"], "ok");
+
+    let files: Value = {
+        let req = auth_get(&token, "/api/v1/files/list").to_request();
+        test::call_and_read_body_json(&app, req).await
+    };
+    let paths: Vec<&str> = files["files"].as_array().unwrap().iter()
+        .map(|f| f["relative_path"].as_str().unwrap())
+        .collect();
+    assert!(paths.contains(&"docs/nuevo.txt"), "debe existir la ruta nueva: {:?}", paths);
+    assert!(!paths.contains(&"docs/viejo.txt"), "no debe existir la ruta vieja: {:?}", paths);
+}
+
+#[actix_web::test]
+async fn move_relocates_file_path() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+    upload(&app, &token, "orig/a.txt", "data").await;
+
+    let files: Value = {
+        let req = auth_get(&token, "/api/v1/files/list").to_request();
+        test::call_and_read_body_json(&app, req).await
+    };
+    let file_id = files["files"].as_array().unwrap().iter()
+        .find(|f| f["relative_path"] == "orig/a.txt")
+        .expect("archivo")
+        ["file_id"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/move")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": file_id,
+            "old_path": "orig/a.txt",
+            "new_path": "dest/deep/b.txt",
+            "idempotency_key": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(resp["status"], "ok");
+
+    let files: Value = {
+        let req = auth_get(&token, "/api/v1/files/list").to_request();
+        test::call_and_read_body_json(&app, req).await
+    };
+    let paths: Vec<&str> = files["files"].as_array().unwrap().iter()
+        .map(|f| f["relative_path"].as_str().unwrap())
+        .collect();
+    assert!(paths.contains(&"dest/deep/b.txt"), "debe existir la ruta movida: {:?}", paths);
+}
+
+#[actix_web::test]
+async fn copy_creates_new_file_with_content() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+    upload(&app, &token, "orig/copy-src.txt", "mundo").await;
+
+    let files: Value = {
+        let req = auth_get(&token, "/api/v1/files/list").to_request();
+        test::call_and_read_body_json(&app, req).await
+    };
+    let file_id = files["files"].as_array().unwrap().iter()
+        .find(|f| f["relative_path"] == "orig/copy-src.txt")
+        .expect("archivo")
+        ["file_id"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/copy")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": file_id,
+            "source_path": "orig/copy-src.txt",
+            "destination_path": "copia/copy-dst.txt",
+            "idempotency_key": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(resp["status"], "ok");
+
+    let files: Value = {
+        let req = auth_get(&token, "/api/v1/files/list").to_request();
+        test::call_and_read_body_json(&app, req).await
+    };
+    let dst = files["files"].as_array().unwrap().iter()
+        .find(|f| f["relative_path"] == "copia/copy-dst.txt")
+        .expect("copia creada");
+    assert_eq!(dst["size_bytes"], "mundo".len() as i64);
+    assert_ne!(dst["file_id"].as_str().unwrap(), file_id, "la copia tiene file_id propio");
+}
+
+#[actix_web::test]
+async fn diff_returns_changes_since_epoch() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+    upload(&app, &token, "diff/a.txt", "x").await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/diff")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "since": 0,
+            "request_id": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+    let changes = resp["changes"].as_array().unwrap();
+    assert!(changes.iter().any(|c| c["relative_path"] == "diff/a.txt" && c["operation"] == "upload"));
+}
+
+#[actix_web::test]
+async fn revoke_device_revokes_other_device_sessions() {
+    let state = setup().await;
+    let app = make_app(state).await;
+
+    // Sesión A: el dispositivo web actual
+    let token_a = {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .set_json(serde_json::json!({
+                "email": EMAIL, "password": PASSWORD, "device_id": "web-actual",
+            }))
+            .to_request();
+        let resp: Value = test::call_and_read_body_json(&app, req).await;
+        resp["session_id"].as_str().unwrap().to_string()
+    };
+    // Sesión B: otro dispositivo a revocar
+    let token_b = {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .set_json(serde_json::json!({
+                "email": EMAIL, "password": PASSWORD, "device_id": "telefono-viejo",
+            }))
+            .to_request();
+        let resp: Value = test::call_and_read_body_json(&app, req).await;
+        resp["session_id"].as_str().unwrap().to_string()
+    };
+    assert_ne!(token_a, token_b);
+
+    // Ambas sesiones activas antes de revocar
+    let devices: Value = {
+        let req = auth_get(&token_a, "/api/v1/devices").to_request();
+        test::call_and_read_body_json(&app, req).await
+    };
+    let dev_b = devices["devices"].as_array().unwrap().iter()
+        .find(|d| d["device_id"] == "telefono-viejo")
+        .expect("dispositivo B registrado");
+    assert!(dev_b["active_sessions"].as_i64().unwrap() >= 1);
+
+    // Revocar el dispositivo B desde la sesión A
+    let req = test::TestRequest::post()
+        .uri("/api/v1/devices/revoke")
+        .insert_header(("Authorization", format!("Bearer {}", token_a)))
+        .set_json(serde_json::json!({
+            "session_id": token_a,
+            "device_id": "web-actual",
+            "target_device_id": "telefono-viejo",
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(resp["status"], "ok");
+    assert_eq!(resp["data"]["sessions_revoked"], 1);
+
+    // La sesión B ya no es válida
+    let req = auth_get(&token_b, "/api/v1/files/list").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401, "la sesión revocada debe fallar");
+
+    // La sesión A sigue viva
+    let req = auth_get(&token_a, "/api/v1/files/list").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200, "la sesión que revoca debe seguir activa");
+
+    // El evento queda en la auditoría
+    let req = auth_get(&token_a, "/api/v1/activity").to_request();
+    let activity: Value = test::call_and_read_body_json(&app, req).await;
+    assert!(activity["events"].as_array().unwrap().iter().any(|e| e["event_name"] == "device.revoked"));
+}
+
+#[actix_web::test]
+async fn revoke_rejects_own_device_and_unknown_device() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+
+    // No puedes revocar tu propio dispositivo actual
+    let req = test::TestRequest::post()
+        .uri("/api/v1/devices/revoke")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "target_device_id": DEVICE_ID,
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    // Dispositivo inexistente → 400 NOT_FOUND
+    let req = test::TestRequest::post()
+        .uri("/api/v1/devices/revoke")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "target_device_id": "no-existe",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "NOT_FOUND");
 }

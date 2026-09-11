@@ -359,6 +359,30 @@ pub async fn get_user_devices(pool: &SqlitePool, user_id: &str) -> Result<Vec<(c
     Ok(result)
 }
 
+/// Revoca todas las sesiones activas de un dispositivo, verificando que el
+/// dispositivo pertenezca al usuario que hace la petición.
+pub async fn revoke_device_sessions(pool: &SqlitePool, user_id: &str, target_device_id: &str) -> Result<u64> {
+    let device: Option<crate::models::DeviceRow> = sqlx::query_as(
+        "SELECT device_id, user_id, platform, device_name, last_seen_at, created_at FROM devices WHERE device_id = ? AND user_id = ?"
+    )
+    .bind(target_device_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    if device.is_none() {
+        return Ok(0);
+    }
+    let result = sqlx::query(
+        "UPDATE sessions SET status = 'revoked', revoked_at = ? WHERE device_id = ? AND status = 'active' AND revoked_at IS NULL AND expires_at > ?"
+    )
+    .bind(now_ms_local())
+    .bind(target_device_id)
+    .bind(now_ms_local())
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
 pub async fn get_storage_stats(pool: &SqlitePool, user_id: &str) -> Result<(i64, i64, Option<i64>)> {
     let row: Option<(i64, Option<i64>)> = sqlx::query_as(
         "SELECT COALESCE(SUM(size_bytes), 0), MAX(modified_at) FROM files WHERE user_id = ? AND status != 'deleted'"

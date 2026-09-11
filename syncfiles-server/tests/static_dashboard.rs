@@ -192,3 +192,32 @@ async fn spa_fallback_unknown_path_serves_index() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 404);
 }
+
+#[actix_web::test]
+async fn dashboard_html_contains_fase6_features() {
+    let state = setup().await;
+    let app = make_web_app(state).await;
+
+    let req = test::TestRequest::get().uri("/").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let html = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
+
+    // Fase 6: subida, acciones de archivo, cola, revocación, modal
+    assert!(html.contains("upload-zone"), "debe existir la dropzone de subida");
+    assert!(html.contains("view-queue"), "debe existir la vista Cola");
+    assert!(html.contains("modal-overlay"), "debe existir el modal de rename/move/copy");
+    assert!(html.contains("files-diff-hint"), "debe existir el hint de diff");
+    assert!(html.contains("queue-pending-only"), "debe existir el filtro de pendientes");
+
+    let req = test::TestRequest::get().uri("/app.js").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let js = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
+    for feature in [
+        "/sync/upload", "/sync/rename", "/sync/move", "/sync/copy",
+        "/sync/diff", "/devices/revoke", "/queue",
+    ] {
+        assert!(js.contains(feature), "app.js debe llamar a {}", feature);
+    }
+}

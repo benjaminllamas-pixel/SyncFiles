@@ -226,6 +226,13 @@ pub struct ResolveConflictRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevokeDeviceRequest {
+    pub session_id: String,
+    pub device_id: String,
+    pub target_device_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadResponse {
     pub accepted: bool,
     pub status: String,

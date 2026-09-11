@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::state::AppState;
-use crate::models::{ApiError, ApiResponse, ChangeEntry, DiffResponse, DownloadResponse, FileEntry, LoginRequest, Session, DiffRequest, UploadRequest, DeleteRequest, DownloadRequest, RenameRequest, MoveRequest, CopyRequest, ResolveConflictRequest, Conflict, uuid_str, now_ms, compute_path_hash};
+use crate::models::{ApiError, ApiResponse, ChangeEntry, DiffResponse, DownloadResponse, FileEntry, LoginRequest, Session, DiffRequest, UploadRequest, DeleteRequest, DownloadRequest, RenameRequest, MoveRequest, CopyRequest, ResolveConflictRequest, RevokeDeviceRequest, Conflict, uuid_str, now_ms, compute_path_hash};
 use crate::auth;
 use crate::storage::normalize_relative_path;
 
@@ -798,6 +798,51 @@ pub async fn resolve_conflict_handler(
 
     let server_seq = state.next_server_seq();
     Ok(ok_response::<()>(None, server_seq))
+}
+
+pub async fn revoke_device_handler(
+    state: web::Data<Arc<AppState>>,
+    request: HttpRequest,
+    req: web::Json<RevokeDeviceRequest>,
+) -> ActixResult<HttpResponse> {
+    let session = match authorize_session(&state, &request, &req.session_id).await {
+        Ok(s) => s,
+        Err(resp) => return Ok(resp),
+    };
+
+    if req.target_device_id == req.device_id {
+        return Ok(bad_request(
+            "INVALID_TARGET",
+            "No puedes revocar el dispositivo con el que estás conectado. Usa cerrar sesión.".to_string(),
+        ));
+    }
+
+    let revoked = match crate::db::revoke_device_sessions(&state.pool, &session.user_id, &req.target_device_id).await {
+        Ok(n) => n,
+        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+    };
+    if revoked == 0 {
+        return Ok(bad_request(
+            "NOT_FOUND",
+            "Dispositivo no encontrado o sin sesiones activas".to_string(),
+        ));
+    }
+
+    if let Err(e) = crate::db::audit_event(&state.pool, &crate::models::AuditEntry {
+        audit_id: uuid_str(),
+        user_id: Some(session.user_id.clone()),
+        device_id: Some(req.device_id.clone()),
+        event_name: "device.revoked".to_string(),
+        event_type: Some("device".to_string()),
+        payload_json: Some(format!("{{\"target_device_id\":\"{}\",\"sessions_revoked\":{}}}", req.target_device_id, revoked)),
+        created_at: now_ms(),
+    }).await {
+        warn!("No se pudo escribir audit_log: {}", e);
+    }
+
+    let server_seq = state.next_server_seq();
+    info!("Dispositivo {} revocado ({} sesiones)", req.target_device_id, revoked);
+    Ok(ok_response(Some(serde_json::json!({ "sessions_revoked": revoked })), server_seq))
 }
 
 pub async fn not_found() -> ActixResult<HttpResponse> {

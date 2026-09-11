@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#0a0d14">
   <title>SyncFiles — Dashboard</title>
-  <link rel="stylesheet" href="styles.css?v=dark2">
+  <link rel="stylesheet" href="styles.css?v=fase6">
 </head>
 <body>
   <!-- Iconos SVG -->
@@ -62,6 +62,27 @@
       </symbol>
       <symbol id="i-check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/>
+      </symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>
+      </symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>
+      </symbol>
+      <symbol id="i-move" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 3h14"/><path d="M12 3v18"/><path d="m8 17 4 4 4-4"/><path d="m8 7 4-4 4 4"/>
+      </symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+      </symbol>
+      <symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+      </symbol>
+      <symbol id="i-shield-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19.37 6.09 20.5 8.1 22 8.7c-.1 3.7-.7 6.7-2 9.1a16.7 16.7 0 0 1-4 4.6c-1.2.9-2.6 1.6-4 1.6s-2.8-.7-4-1.6a16.7 16.7 0 0 1-4-4.6c-1.3-2.4-1.9-5.4-2-9.1l1.5-.6 1.1-2c.3-.5.9-.8 1.5-.7l2.4.5c1.2.3 2.4.3 3.6 0l3.9-.9c.6-.1 1.2.2 1.5.7Z"/><path d="m2 2 20 20"/>
       </symbol>
     </defs>
   </svg>
@@ -121,6 +142,7 @@
     <nav id="nav" class="nav">
       <a href="#" data-view="dashboard" class="nav-link active"><svg class="ico"><use href="#i-grid"/></svg>Dashboard</a>
       <a href="#" data-view="files" class="nav-link"><svg class="ico"><use href="#i-folder"/></svg>Archivos</a>
+      <a href="#" data-view="queue" class="nav-link"><svg class="ico"><use href="#i-list"/></svg>Cola</a>
       <a href="#" data-view="conflicts" class="nav-link"><svg class="ico"><use href="#i-alert"/></svg>Conflictos <span id="conflict-count" class="count hidden">0</span></a>
       <a href="#" data-view="activity" class="nav-link"><svg class="ico"><use href="#i-activity"/></svg>Actividad</a>
     </nav>
@@ -151,7 +173,7 @@
           <div class="table-wrap">
             <table id="devices-table">
               <thead>
-                <tr><th>Dispositivo</th><th>Plataforma</th><th>Sesiones activas</th><th>Última conexión</th></tr>
+                <tr><th>Dispositivo</th><th>Plataforma</th><th>Sesiones activas</th><th>Última conexión</th><th class="actions-col">Acciones</th></tr>
               </thead>
               <tbody></tbody>
             </table>
@@ -175,6 +197,16 @@
           </div>
         </div>
         <div id="files-error" class="error hidden"></div>
+        <p id="files-diff-hint" class="diff-hint hidden"></p>
+
+        <div id="upload-zone" class="upload-zone" tabindex="0" role="button" aria-label="Subir archivos">
+          <svg class="dz-ico"><use href="#i-upload"/></svg>
+          <p class="dz-text">Arrastra archivos aquí o <span class="dz-link">haz clic para elegir</span></p>
+          <p class="muted dz-hint">Se subirán con SHA-256 y se sincronizarán en tus otros dispositivos</p>
+          <input type="file" id="upload-input" multiple hidden>
+        </div>
+        <div id="upload-progress" class="upload-progress hidden"></div>
+
         <div class="card">
           <div class="table-wrap">
             <table id="files-table">
@@ -185,6 +217,34 @@
             </table>
           </div>
           <p id="files-empty" class="empty-state hidden"><svg><use href="#i-folder"/></svg>Sin archivos sincronizados todavía.</p>
+        </div>
+      </section>
+
+      <!-- Queue -->
+      <section id="view-queue" class="view hidden">
+        <div class="view-head">
+          <h2><svg class="ico"><use href="#i-list"/></svg>Cola de sincronización</h2>
+          <div class="view-actions">
+            <label class="toggle">
+              <input type="checkbox" id="queue-pending-only"> Solo pendientes
+            </label>
+            <button id="queue-refresh" class="btn ghost">
+              <svg class="b-ico"><use href="#i-refresh"/></svg>
+              Actualizar
+            </button>
+          </div>
+        </div>
+        <div id="queue-error" class="error hidden"></div>
+        <div class="card">
+          <div class="table-wrap">
+            <table id="queue-table">
+              <thead>
+                <tr><th>Archivo</th><th>Operación</th><th>Dispositivo</th><th>Estado</th><th class="num">Intentos</th><th>Actualizado</th><th>Error</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p id="queue-empty" class="empty-state hidden"><svg><use href="#i-check-circle"/></svg>Sin operaciones en cola.</p>
         </div>
       </section>
 
@@ -226,9 +286,33 @@
       </section>
     </main>
 
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <div id="modal" class="modal" role="dialog" aria-modal="true">
+        <div class="modal-head">
+          <h3 id="modal-title">Título</h3>
+          <button id="modal-close" class="icon-btn modal-close" aria-label="Cerrar">
+            <svg class="ico"><use href="#i-x"/></svg>
+          </button>
+        </div>
+        <p id="modal-desc" class="muted modal-desc"></p>
+        <div class="field">
+          <label for="modal-input" id="modal-label">Valor</label>
+          <div class="input-wrap">
+            <svg class="input-ico"><use href="#i-edit"/></svg>
+            <input id="modal-input" type="text" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+        <p id="modal-error" class="error hidden"></p>
+        <div class="modal-actions">
+          <button id="modal-cancel" class="btn ghost">Cancelar</button>
+          <button id="modal-ok" class="btn primary">Aceptar</button>
+        </div>
+      </div>
+    </div>
+
     <div id="toast" class="toast hidden" role="status"></div>
   </div>
 
-  <script src="app.js?v=dark2"></script>
+  <script src="app.js?v=fase6"></script>
 </body>
 </html>

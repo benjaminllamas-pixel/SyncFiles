@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
                     .route("/activity", web::get().to(syncfiles_server::handlers::activity_handler))
                     .route("/conflicts", web::get().to(syncfiles_server::handlers::conflicts_handler))
                     .route("/devices", web::get().to(syncfiles_server::handlers::devices_handler))
+                    .route("/devices/revoke", web::post().to(syncfiles_server::handlers::revoke_device_handler))
                     .route("/storage/stats", web::get().to(syncfiles_server::handlers::storage_stats_handler))
                     .route("/conflicts/resolve", web::post().to(syncfiles_server::handlers::resolve_conflict_handler))
                     .default_service(web::route().to(syncfiles_server::handlers::not_found))

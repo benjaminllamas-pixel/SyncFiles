@@ -55,12 +55,13 @@ Componentes compartidos del tema en `ui/theme/Components.kt`
 | Pantalla | Contenido |
 |---|---|
 | Login | contra `/auth/login`, sesión en localStorage (Bearer), restauración automática |
-| Dashboard | tarjetas Servidor/Almacenamiento/Última modificación, tabla dispositivos, auto-refresh 15 s |
-| Archivos | tabla (`/files/list`), descarga (base64→Blob), borrado con confirmación, "Mostrar borrados" |
+| Dashboard | tarjetas Servidor/Almacenamiento/Última modificación, tabla dispositivos con botón "Revocar" (revoca sesiones activas vía `POST /devices/revoke`), auto-refresh 15 s |
+| Archivos | tabla (`/files/list`), dropzone de subida con drag&drop (`/sync/upload`, SHA-256 + base64), descarga (base64→Blob), renombrar/mover/copiar con modal (`/sync/rename`, `/sync/move`, `/sync/copy`), borrado con confirmación, badge "Desactualizado" vía `/sync/diff`, "Mostrar borrados" |
+| Cola | operaciones de sincronización (`GET /queue`) con operación/dispositivo/estado/intentos/error, filtro "Solo pendientes" |
 | Conflictos | tarjetas con checksums/dispositivos/fecha, mantener local/remoto + copia alternativa, badge contador |
 | Actividad | últimos 100 eventos (`/activity`) |
 
-Responsive móvil (< 720px nav deslizable; < 460px tarjetas apiladas) y modo oscuro.
+Responsive móvil (< 720px nav deslizable, acciones en segunda línea; < 460px tarjetas apiladas) y modo oscuro.
 
 ### Cómo lanzar cada cliente
 

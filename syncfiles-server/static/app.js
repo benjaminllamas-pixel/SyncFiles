@@ -209,12 +209,58 @@ function renderDevices(devices) {
   for (const d of devices) {
     const tr = document.createElement('tr');
     const active = d.active_sessions >= 1;
+
+    const revokeBtn = document.createElement('button');
+    revokeBtn.className = 'btn tiny danger';
+    revokeBtn.innerHTML = `<svg class="b-ico"><use href="#i-shield-off"/></svg>Revocar`;
+    revokeBtn.disabled = !active || d.device_id === store.deviceId;
+    revokeBtn.title = d.device_id === store.deviceId
+      ? 'Es tu dispositivo actual: usa "Cerrar sesión"'
+      : (active ? 'Revoca todas las sesiones activas de este dispositivo' : 'Sin sesiones activas');
+    revokeBtn.addEventListener('click', () => revokeDevice(d));
+
+    const actions = document.createElement('div');
+    actions.className = 'row-actions devices-actions';
+    actions.appendChild(revokeBtn);
+    const revokeBtn2 = revokeBtn.cloneNode(true);
+    revokeBtn2.disabled = revokeBtn.disabled;
+    revokeBtn2.title = revokeBtn.title;
+    revokeBtn2.addEventListener('click', () => revokeDevice(d));
+    const secondary = document.createElement('div');
+    secondary.className = 'devices-actions-sec';
+    secondary.appendChild(revokeBtn2);
+
     tr.innerHTML = `
       <td>${escapeHtml(d.device_name || d.device_id)}</td>
       <td>${escapeHtml(d.platform || '—')}</td>
       <td>${active ? '<span class="status-pill synced">Sí</span>' : '<span class="status-pill deleted">No</span>'}</td>
       <td>${fmtDate(d.last_seen_at)}</td>`;
+    const tdActions = document.createElement('td');
+    tdActions.appendChild(actions);
+    tr.appendChild(tdActions);
+    const tdSecondary = document.createElement('td');
+    tdSecondary.appendChild(secondary);
+    tr.appendChild(tdSecondary);
     tbody.appendChild(tr);
+  }
+}
+
+async function revokeDevice(d) {
+  if (!window.confirm(`¿Revocar todas las sesiones activas de "${d.device_name || d.device_id}"?\nEse dispositivo tendrá que iniciar sesión de nuevo.`)) return;
+  try {
+    const data = await apiJson('/devices/revoke', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: store.token,
+        device_id: store.deviceId,
+        target_device_id: d.device_id,
+      }),
+    });
+    const n = (data && data.data && data.data.sessions_revoked) || 0;
+    toast(`Dispositivo revocado (${n} sesión(es))`);
+    await loadDashboard();
+  } catch (err) {
+    toast(`Revocación fallida: ${err.message}`, 'err');
   }
 }
 
@@ -223,13 +269,36 @@ async function loadFiles() {
   clearError('files-error');
   try {
     const showDeleted = $('files-show-deleted').checked;
-    const data = await apiJson(`/files/list${showDeleted ? '?include_deleted=true' : ''}`);
+    const [data, diff] = await Promise.all([
+      apiJson(`/files/list${showDeleted ? '?include_deleted=true' : ''}`),
+      apiJson('/sync/diff', {
+        method: 'POST',
+        body: JSON.stringify({
+          session_id: store.token,
+          device_id: store.deviceId,
+          since: 0,
+          request_id: randomId('webdiff'),
+        }),
+      }).catch(() => null),
+    ]);
     setConnBadge(true);
-    renderFiles(data.files || []);
+    const changes = (diff && diff.changes) || [];
+    renderFiles(data.files || [], changes);
+    renderDiffCount(changes);
   } catch (err) {
     setConnBadge(false);
     showError('files-error', err);
   }
+}
+
+function renderDiffCount(changes) {
+  const el = $('files-diff-hint');
+  if (!changes.length) {
+    el.classList.add('hidden');
+    return;
+  }
+  el.classList.remove('hidden');
+  el.textContent = `${changes.length} cambio(s) en el servidor sin aplicar en este navegador`;
 }
 
 const STATUS_LABELS = { synced: 'Sincronizado', deleted: 'Borrado', pending: 'Pendiente', queued: 'En cola', retry: 'Reintentando' };
@@ -238,11 +307,14 @@ function statusPill(status) {
   return `<span class="status-pill ${escapeHtml(status)}">${escapeHtml(STATUS_LABELS[status] || status)}</span>`;
 }
 
-function renderFiles(files) {
+function renderFiles(files, changes = []) {
+  const changesByPathHash = new Map(changes.map(c => [c.path_hash, c]));
   const tbody = $('files-table').querySelector('tbody');
   tbody.innerHTML = '';
   $('files-empty').classList.toggle('hidden', files.length > 0);
   for (const f of files) {
+    const change = changesByPathHash.get(f.path_hash);
+    const outdated = change && change.modified_at > (f.synced_at || 0) && change.operation !== 'delete';
     const tr = document.createElement('tr');
     if (f.status === 'deleted') tr.classList.add('deleted-row');
 
@@ -256,23 +328,42 @@ function renderFiles(files) {
     downloadBtn.innerHTML = `<svg class="b-ico"><use href="#i-download"/></svg>Descargar`;
     downloadBtn.addEventListener('click', () => downloadFile(f));
 
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'btn tiny ghost';
+    renameBtn.innerHTML = `<svg class="b-ico"><use href="#i-edit"/></svg>Renombrar`;
+    renameBtn.disabled = f.status === 'deleted';
+    renameBtn.addEventListener('click', () => renameFile(f));
+
+    const moveBtn = document.createElement('button');
+    moveBtn.className = 'btn tiny ghost';
+    moveBtn.innerHTML = `<svg class="b-ico"><use href="#i-move"/></svg>Mover`;
+    moveBtn.disabled = f.status === 'deleted';
+    moveBtn.addEventListener('click', () => moveFile(f));
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn tiny ghost';
+    copyBtn.innerHTML = `<svg class="b-ico"><use href="#i-copy"/></svg>Copiar`;
+    copyBtn.disabled = f.status === 'deleted';
+    copyBtn.addEventListener('click', () => copyFile(f));
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn tiny danger';
     deleteBtn.innerHTML = `<svg class="b-ico"><use href="#i-trash"/></svg>Borrar`;
     deleteBtn.disabled = f.status === 'deleted';
     deleteBtn.addEventListener('click', () => deleteFile(f));
 
-    const downloadBtn2 = downloadBtn.cloneNode(true);
-    downloadBtn2.addEventListener('click', () => downloadFile(f));
-    const deleteBtn2 = deleteBtn.cloneNode(true);
-    deleteBtn2.disabled = f.status === 'deleted';
-    deleteBtn2.addEventListener('click', () => deleteFile(f));
+    const mkBtn2 = (btn) => {
+      const clone = btn.cloneNode(true);
+      clone.disabled = btn.disabled;
+      clone.addEventListener('click', () => btn.click());
+      return clone;
+    };
 
-    actions.append(downloadBtn, deleteBtn);
-    secondary.append(downloadBtn2, deleteBtn2);
+    actions.append(downloadBtn, renameBtn, moveBtn, copyBtn, deleteBtn);
+    secondary.append(mkBtn2(downloadBtn), mkBtn2(renameBtn), mkBtn2(moveBtn), mkBtn2(copyBtn), mkBtn2(deleteBtn));
 
     tr.innerHTML = `
-      <td class="path-cell">${escapeHtml(f.relative_path)}</td>
+      <td class="path-cell">${escapeHtml(f.relative_path)}${outdated ? ' <span class="status-pill pending" title="Cambio en el servidor aún no aplicado en este navegador">Desactualizado</span>' : ''}</td>
       <td class="num">${fmtBytes(f.size_bytes)}</td>
       <td>${fmtDate(f.modified_at)}</td>
       <td>${statusPill(f.status)}</td>`;
@@ -337,11 +428,245 @@ async function deleteFile(f) {
   }
 }
 
+/* ============ Subir archivos ============ */
+async function uploadFiles(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return;
+
+  const progressEl = $('upload-progress');
+  progressEl.classList.remove('hidden');
+
+  for (const file of files) {
+    progressEl.textContent = `Subiendo: ${file.name} (${fmtBytes(file.size)})…`;
+    try {
+      await uploadOne(file);
+      toast(`Subido: ${file.name}`);
+    } catch (err) {
+      toast(`Subida fallida (${file.name}): ${err.message}`, 'err');
+    }
+  }
+
+  progressEl.classList.add('hidden');
+  await Promise.allSettled([loadFiles(), loadDashboard()]);
+}
+
+async function uploadOne(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const checksum = await sha256Hex(bytes);
+  await apiJson('/sync/upload', {
+    method: 'POST',
+    body: JSON.stringify({
+      session_id: store.token,
+      device_id: store.deviceId,
+      file_id: '',
+      relative_path: file.name,
+      path_hash: await sha256Hex(new TextEncoder().encode(file.name)),
+      checksum,
+      size_bytes: bytes.length,
+      modified_at: file.lastModified || Date.now(),
+      idempotency_key: randomId('webup'),
+      content: bytesToBase64(bytes),
+    }),
+  });
+}
+
 function base64ToBytes(b64) {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
+}
+
+function bytesToBase64(bytes) {
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+function toHex(buffer) {
+  return Array.from(new Uint8Array(buffer), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return toHex(digest);
+}
+
+function joinPath(dir, name) {
+  if (!dir || dir === '' || dir === '.' || dir === '/') return name;
+  return `${dir.replace(/\/+$/, '')}/${name}`;
+}
+
+function parentDir(path) {
+  const idx = path.lastIndexOf('/');
+  return idx === -1 ? '' : path.slice(0, idx);
+}
+
+function baseName(path) {
+  return path.split('/').pop() || path;
+}
+
+/* ============ Modal ============ */
+const modalState = { resolve: null };
+
+function openModal({ title, description, label, value, okLabel = 'Aceptar' }) {
+  return new Promise((resolve) => {
+    modalState.resolve = resolve;
+    $('modal-title').textContent = title;
+    $('modal-desc').textContent = description || '';
+    $('modal-desc').classList.toggle('hidden', !description);
+    $('modal-label').textContent = label || 'Valor';
+    $('modal-input').value = value || '';
+    $('modal-ok').textContent = okLabel;
+    clearError('modal-error');
+    $('modal-overlay').classList.remove('hidden');
+    $('modal-input').focus();
+    $('modal-input').select();
+  });
+}
+
+function closeModal(result) {
+  $('modal-overlay').classList.add('hidden');
+  const resolve = modalState.resolve;
+  modalState.resolve = null;
+  if (resolve) resolve(result);
+}
+
+async function promptModal(opts) {
+  const value = await openModal(opts);
+  return value;
+}
+
+/* ============ Rename / Move / Copy ============ */
+async function renameFile(f) {
+  const value = await promptModal({
+    title: 'Renombrar archivo',
+    description: f.relative_path,
+    label: 'Nuevo nombre de archivo',
+    value: baseName(f.relative_path),
+    okLabel: 'Renombrar',
+  });
+  if (value === null || value === undefined) return;
+  const newName = String(value).trim();
+  if (!newName || newName === baseName(f.relative_path)) return;
+  const newPath = joinPath(parentDir(f.relative_path), newName);
+  try {
+    await apiJson('/sync/rename', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: store.token,
+        device_id: store.deviceId,
+        file_id: f.file_id,
+        old_path: f.relative_path,
+        new_path: newPath,
+        idempotency_key: randomId('webren'),
+      }),
+    });
+    toast(`Renombrado a: ${newPath}`);
+    await loadFiles();
+  } catch (err) {
+    toast(`Renombrado fallido: ${err.message}`, 'err');
+  }
+}
+
+async function moveFile(f) {
+  const value = await promptModal({
+    title: 'Mover archivo',
+    description: f.relative_path,
+    label: 'Nueva ruta (carpetas con /)',
+    value: f.relative_path,
+    okLabel: 'Mover',
+  });
+  if (value === null || value === undefined) return;
+  const newPath = String(value).trim().replace(/^\/+/, '');
+  if (!newPath || newPath === f.relative_path) return;
+  try {
+    await apiJson('/sync/move', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: store.token,
+        device_id: store.deviceId,
+        file_id: f.file_id,
+        old_path: f.relative_path,
+        new_path: newPath,
+        idempotency_key: randomId('webmov'),
+      }),
+    });
+    toast(`Movido a: ${newPath}`);
+    await loadFiles();
+  } catch (err) {
+    toast(`Movimiento fallido: ${err.message}`, 'err');
+  }
+}
+
+async function copyFile(f) {
+  const suggested = joinPath(parentDir(f.relative_path), `${baseName(f.relative_path)}.copia`);
+  const value = await promptModal({
+    title: 'Copiar archivo',
+    description: f.relative_path,
+    label: 'Ruta de la copia',
+    value: suggested,
+    okLabel: 'Copiar',
+  });
+  if (value === null || value === undefined) return;
+  const dst = String(value).trim().replace(/^\/+/, '');
+  if (!dst) return;
+  try {
+    await apiJson('/sync/copy', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: store.token,
+        device_id: store.deviceId,
+        file_id: f.file_id,
+        source_path: f.relative_path,
+        destination_path: dst,
+        idempotency_key: randomId('webcpy'),
+      }),
+    });
+    toast(`Copiado a: ${dst}`);
+    await Promise.allSettled([loadFiles(), loadDashboard()]);
+  } catch (err) {
+    toast(`Copia fallida: ${err.message}`, 'err');
+  }
+}
+
+/* ============ Cola ============ */
+const OP_LABELS = { upload: 'Subir', download: 'Descargar', delete: 'Borrar', rename: 'Renombrar', move: 'Mover', copy: 'Copiar' };
+
+async function loadQueue() {
+  clearError('queue-error');
+  try {
+    const pendingOnly = $('queue-pending-only').checked;
+    const q = pendingOnly ? '?status=pending&limit=100' : '?limit=100';
+    const data = await apiJson(`/queue${q}`);
+    setConnBadge(true);
+    renderQueue(data.entries || []);
+  } catch (err) {
+    setConnBadge(false);
+    showError('queue-error', err);
+  }
+}
+
+function renderQueue(entries) {
+  const tbody = $('queue-table').querySelector('tbody');
+  tbody.innerHTML = '';
+  $('queue-empty').classList.toggle('hidden', entries.length > 0);
+  for (const e of entries) {
+    const tr = document.createElement('tr');
+    const op = escapeHtml(e.operation || '');
+    tr.innerHTML = `
+      <td class="path-cell">${escapeHtml(e.file_id || '—')}</td>
+      <td><span class="op-pill ${op}">${escapeHtml(OP_LABELS[e.operation] || e.operation || '—')}</span></td>
+      <td class="path-cell">${escapeHtml(e.device_id || '—')}</td>
+      <td>${statusPill(e.status)}</td>
+      <td class="num">${e.attempts ?? 0}</td>
+      <td>${fmtDate(e.updated_at)}</td>
+      <td class="path-cell queue-error-cell">${escapeHtml(e.last_error || '—')}</td>`;
+    tbody.appendChild(tr);
+  }
 }
 
 /* ============ Conflictos ============ */
@@ -466,6 +791,7 @@ function startAutoRefresh() {
   store.refreshTimer = setInterval(async () => {
     if (store.view === 'dashboard') await loadDashboard();
     if (store.view === 'files') await loadFiles();
+    if (store.view === 'queue') await loadQueue();
     if (store.view === 'conflicts') await loadConflicts();
     if (store.view === 'activity') await loadActivity();
     await loadConflictCount();
@@ -522,6 +848,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const v = link.dataset.view;
       if (v === 'dashboard') loadDashboard();
       if (v === 'files') loadFiles();
+      if (v === 'queue') loadQueue();
       if (v === 'conflicts') loadConflicts();
       if (v === 'activity') loadActivity();
     });
@@ -529,8 +856,67 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   $('files-refresh').addEventListener('click', loadFiles);
   $('files-show-deleted').addEventListener('change', loadFiles);
+  $('queue-refresh').addEventListener('click', loadQueue);
+  $('queue-pending-only').addEventListener('change', loadQueue);
   $('conflicts-refresh').addEventListener('click', loadConflicts);
   $('activity-refresh').addEventListener('click', loadActivity);
+
+  // Subida de archivos: click, teclado y drag&drop
+  const dz = $('upload-zone');
+  const uploadInput = $('upload-input');
+  dz.addEventListener('click', () => uploadInput.click());
+  dz.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') {
+      ev.preventDefault();
+      uploadInput.click();
+    }
+  });
+  uploadInput.addEventListener('change', () => {
+    uploadFiles(uploadInput.files);
+    uploadInput.value = '';
+  });
+  for (const evt of ['dragenter', 'dragover']) {
+    dz.addEventListener(evt, (ev) => {
+      ev.preventDefault();
+      dz.classList.add('dragover');
+    });
+  }
+  for (const evt of ['dragleave', 'drop']) {
+    dz.addEventListener(evt, (ev) => {
+      ev.preventDefault();
+      dz.classList.remove('dragover');
+    });
+  }
+  dz.addEventListener('drop', (ev) => {
+    if (ev.dataTransfer && ev.dataTransfer.files.length) {
+      uploadFiles(ev.dataTransfer.files);
+    }
+  });
+
+  // Modal
+  $('modal-close').addEventListener('click', () => closeModal(null));
+  $('modal-cancel').addEventListener('click', () => closeModal(null));
+  $('modal-overlay').addEventListener('click', (ev) => {
+    if (ev.target === $('modal-overlay')) closeModal(null);
+  });
+  $('modal-ok').addEventListener('click', () => {
+    const value = $('modal-input').value;
+    clearError('modal-error');
+    closeModal(value);
+  });
+  $('modal-input').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') {
+      ev.preventDefault();
+      const value = $('modal-input').value;
+      clearError('modal-error');
+      closeModal(value);
+    }
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && !$('modal-overlay').classList.contains('hidden')) {
+      closeModal(null);
+    }
+  });
 
   const restored = await tryRestoreSession();
   if (restored) {
