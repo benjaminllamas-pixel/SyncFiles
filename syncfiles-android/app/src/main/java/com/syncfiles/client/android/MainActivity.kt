@@ -104,6 +104,7 @@ fun SyncFilesApp(sessionStore: SessionStore, localFileStore: LocalFileSyncStore)
             )
             SettingsScreen(
                 viewModel = settingsViewModel,
+                onBack = { navController.popBackStack() },
                 onLoggedOut = {
                     navController.navigate("login") {
                         popUpTo(0) { inclusive = true }
