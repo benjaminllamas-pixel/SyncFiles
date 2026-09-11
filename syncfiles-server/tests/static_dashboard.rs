@@ -12,6 +12,21 @@ const PASSWORD: &str = "syncfiles";
 const USER_ID: &str = "user-web-001";
 const DEVICE_ID: &str = "device-web-001";
 
+async fn no_cache_statics(
+    req: actix_web::dev::ServiceRequest,
+    next: actix_web::middleware::Next<actix_web::body::EitherBody<BoxBody>>,
+) -> Result<actix_web::dev::ServiceResponse<actix_web::body::EitherBody<BoxBody>>, actix_web::Error> {
+    let path = req.path().to_owned();
+    let mut res = next.call(req).await?;
+    if !path.starts_with("/api/") {
+        res.headers_mut().insert(
+            actix_web::http::header::CACHE_CONTROL,
+            actix_web::http::header::HeaderValue::from_static("no-cache"),
+        );
+    }
+    Ok(res)
+}
+
 fn static_dir() -> String {
     // tests corren con CWD = syncfiles-server
     "./static".to_string()
@@ -42,6 +57,7 @@ async fn make_web_app(
     test::init_service(
         App::new()
             .wrap(actix_cors::Cors::permissive())
+            .wrap(actix_web::middleware::from_fn(no_cache_statics))
             .app_data(web::Data::new(state))
             .service(
                 web::scope("/api/v1")
@@ -87,6 +103,31 @@ async fn static_assets_are_served() {
     let req = test::TestRequest::get().uri("/app.js").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn static_assets_force_revalidation() {
+    let state = setup().await;
+    let app = make_web_app(state).await;
+
+    // El navegador no debe servirse estáticos desde su caché sin revalidar
+    for uri in ["/", "/styles.css", "/app.js"] {
+        let req = test::TestRequest::get().uri(uri).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let cc = resp
+            .headers()
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        assert_eq!(cc, "no-cache", "{} debe llevar Cache-Control: no-cache", uri);
+    }
+
+    // Las rutas de API no se tocan
+    let req = test::TestRequest::get().uri("/api/v1/no-existe").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+    assert!(!resp.headers().contains_key("cache-control"));
 }
 
 #[actix_web::test]

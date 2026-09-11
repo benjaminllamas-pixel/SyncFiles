@@ -1,8 +1,26 @@
 use actix_files::Files;
+use actix_web::body::MessageBody;
+use actix_web::dev::{ServiceRequest, ServiceResponse};
+use actix_web::middleware::{from_fn, Next};
 use actix_web::web;
 use anyhow::Result;
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+async fn no_cache_statics(
+    req: ServiceRequest,
+    next: Next<impl MessageBody>,
+) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
+    let path = req.path().to_owned();
+    let mut res = next.call(req).await?;
+    if !path.starts_with("/api/") {
+        res.headers_mut().insert(
+            actix_web::http::header::CACHE_CONTROL,
+            actix_web::http::header::HeaderValue::from_static("no-cache"),
+        );
+    }
+    Ok(res)
+}
 
 #[actix_web::main]
 async fn main() -> Result<()> {
@@ -41,6 +59,8 @@ async fn main() -> Result<()> {
 
         actix_web::App::new()
             .wrap(cors)
+            // Estáticos sin cache agresivo: el navegador debe revalidar (ETag) en cada carga
+            .wrap(from_fn(no_cache_statics))
             .app_data(actix_web::web::Data::new(app_state.clone()))
             .service(
                 web::scope("/api/v1")
