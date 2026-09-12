@@ -201,7 +201,9 @@ fun SyncFilesApp(sessionStore: SessionStore, localFileStore: LocalFileSyncStore)
         }
         composable("save-share") {
             val saveShareViewModel: SaveShareViewModel = viewModel(
-                factory = SaveShareViewModel.Factory(sessionStore, syncEngine, pendingStore)
+                factory = SaveShareViewModel.Factory(
+                    appContext, sessionStore, syncEngine, pendingStore
+                )
             )
             // Entrada sin in-flight: cargar el pendiente más antiguo (si no
             // hay nada, volver atrás).

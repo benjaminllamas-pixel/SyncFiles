@@ -44,7 +44,7 @@ class SyncQueueStore(context: Context) {
             stmt.bindString(3, relativePath)
             stmt.bindString(4, operation)
             stmt.bindString(5, idempotencyKey)
-            stmt.bindString(6, payloadJson)
+            if (payloadJson == null) stmt.bindNull(6) else stmt.bindString(6, payloadJson)
             stmt.bindLong(7, now)
             stmt.bindLong(8, now)
             stmt.execute()
@@ -97,7 +97,7 @@ class SyncQueueStore(context: Context) {
         val sql = "UPDATE $TABLE SET status = ?, attempts = attempts + 1, last_error = ?, updated_at = ? WHERE queue_id = ?"
         db.compileStatement(sql).also { stmt ->
             stmt.bindString(1, status)
-            stmt.bindString(2, error)
+            if (error == null) stmt.bindNull(2) else stmt.bindString(2, error)
             stmt.bindLong(3, System.currentTimeMillis())
             stmt.bindString(4, queueId)
             stmt.execute()

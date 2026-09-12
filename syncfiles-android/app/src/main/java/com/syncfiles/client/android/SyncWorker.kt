@@ -1,10 +1,8 @@
 package com.syncfiles.client.android
 
 import android.content.Context
-import android.net.Uri
 import android.util.Base64
 import android.util.Log
-import androidx.documentfile.provider.DocumentFile
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.syncfiles.client.android.data.api.ApiClientFactory
@@ -20,6 +18,7 @@ import com.syncfiles.client.android.data.local.SyncStatus
 import com.syncfiles.client.android.data.storage.SessionStore
 import com.syncfiles.client.android.data.storage.StoredSession
 import com.syncfiles.client.android.data.util.Hashing
+import com.syncfiles.client.android.data.util.SyncRootResolver
 import java.io.File
 import java.util.UUID
 
@@ -213,23 +212,7 @@ class SyncWorker(
     }
 
     fun localRoot(): File {
-        val uriString = sessionStore.getSyncRootUri()
-        if (!uriString.isNullOrEmpty()) {
-            try {
-                val uri = Uri.parse(uriString)
-                val doc = DocumentFile.fromTreeUri(applicationContext, uri)
-                val path = doc?.uri?.path
-                if (!path.isNullOrEmpty()) {
-                    val file = File(path)
-                    if (file.exists() || file.mkdirs()) {
-                        return file
-                    }
-                }
-            } catch (_: Exception) {
-                // fallback below
-            }
-        }
-        return File(applicationContext.filesDir, "sync_root").apply { mkdirs() }
+        return SyncRootResolver.resolveRoot(applicationContext, sessionStore.getSyncRootUri())
     }
 
     companion object {

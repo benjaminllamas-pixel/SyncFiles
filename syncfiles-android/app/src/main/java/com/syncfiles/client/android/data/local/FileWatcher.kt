@@ -1,13 +1,11 @@
 package com.syncfiles.client.android.data.local
 
 import android.content.Context
-import android.net.Uri
 import android.os.FileObserver
-import android.provider.OpenableColumns
 import android.util.Log
-import androidx.documentfile.provider.DocumentFile
 import com.syncfiles.client.android.data.storage.SessionStore
 import com.syncfiles.client.android.data.util.Hashing
+import com.syncfiles.client.android.data.util.SyncRootResolver
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -42,7 +40,7 @@ class FileWatcher(
 
     fun startWatching() {
         stopWatching()
-        val root = resolveRootFile() ?: return
+        val root = resolveRootFile()
         if (!root.exists() || !root.isDirectory) {
             Log.w(TAG, "No se puede observar ${root.absolutePath}: no es un directorio accesible")
             return
@@ -80,18 +78,8 @@ class FileWatcher(
 
     fun isRunning(): Boolean = running.get()
 
-    private fun resolveRootFile(): File? {
+    private fun resolveRootFile(): File {
         val sessionStore = SessionStore(context)
-        val uriString = sessionStore.getSyncRootUri() ?: return null
-        return try {
-            val uri = Uri.parse(uriString)
-            val doc = DocumentFile.fromTreeUri(context, uri)
-            val path = doc?.uri?.path ?: return null
-            val file = File(path)
-            if (file.exists() || file.mkdirs()) file else null
-        } catch (e: Exception) {
-            Log.w(TAG, "No se pudo resolver la carpeta SAF: ${e.message}")
-            null
-        }
+        return SyncRootResolver.resolveRoot(context, sessionStore.getSyncRootUri())
     }
 }

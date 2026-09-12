@@ -13,6 +13,7 @@ import com.syncfiles.client.android.data.local.LocalFileSyncStore
 import com.syncfiles.client.android.data.local.LocalFile
 import com.syncfiles.client.android.data.storage.SessionStore
 import com.syncfiles.client.android.data.util.Hashing
+import com.syncfiles.client.android.data.util.SyncRootResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -104,7 +105,7 @@ class FilesViewModel(
     private fun saveDownloadedFile(file: FileListItem, contentB64: String, checksum: String): String? {
         return try {
             val bytes = Base64.decode(contentB64, Base64.NO_WRAP)
-            val root = resolveRootFile() ?: File(appContext.filesDir, "sync_root").apply { mkdirs() }
+            val root = resolveRootFile()
             val target = File(root, file.relative_path)
             target.parentFile?.mkdirs()
             target.writeBytes(bytes)
@@ -126,17 +127,8 @@ class FilesViewModel(
         }
     }
 
-    private fun resolveRootFile(): File? {
-        val uriString = store.getSyncRootUri() ?: return null
-        return try {
-            val uri = android.net.Uri.parse(uriString)
-            val doc = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, uri)
-            val path = doc?.uri?.path ?: return null
-            val f = File(path)
-            if (f.exists() || f.mkdirs()) f else null
-        } catch (e: Exception) {
-            null
-        }
+    private fun resolveRootFile(): File {
+        return SyncRootResolver.resolveRoot(appContext, store.getSyncRootUri())
     }
 
     fun clearMessage() {

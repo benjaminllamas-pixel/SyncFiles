@@ -5,6 +5,7 @@ import android.util.Log
 import com.syncfiles.client.android.SyncScheduler
 import com.syncfiles.client.android.data.storage.SessionStore
 import com.syncfiles.client.android.data.util.ShareNaming
+import com.syncfiles.client.android.data.util.SyncRootResolver
 import java.io.File
 import java.util.UUID
 
@@ -62,9 +63,12 @@ class SyncEngine(context: Context) {
      * o el nombre queda vacío tras sanitizar.
      */
     fun ingestNamedShare(content: String, fileName: String): String? {
-        if (sessionStore.getActiveSession() == null) return null
+        if (sessionStore.getActiveSession() == null) {
+            Log.w(TAG, "ingestNamedShare: sin sesión activa local (nunca iniciada o expirada)")
+            return null
+        }
         if (content.isBlank()) return null
-        val root = resolveRootFile() ?: return null
+        val root = resolveRootFile()
 
         return try {
             val safeName = ShareNaming.ensureTxtExtension(
@@ -120,6 +124,17 @@ class SyncEngine(context: Context) {
                     )
                 }
             } else {
+                // Evita el loop watcher→upload: si el archivo fue escrito
+                // por el propio SyncWorker (descarga del servidor o share
+                // recién guardado), su checksum ya coincide con el local y
+                // re-subirlo solo re-atribuye el archivo a este dispositivo
+                // (ping-pong entre dispositivos). Solo sube cambios reales.
+                val file = File(resolveRootFile(), relativePath)
+                if (file.isFile) {
+                    val checksum = com.syncfiles.client.android.data.util.Hashing
+                        .sha256Hex(file.readBytes())
+                    if (existing != null && existing.checksum == checksum) return
+                }
                 queue.enqueue(
                     fileId = fileId,
                     relativePath = relativePath,
@@ -132,16 +147,17 @@ class SyncEngine(context: Context) {
         }
     }
 
-    fun resolveRootFile(): File? {
-        val uriString = sessionStore.getSyncRootUri() ?: return null
-        return try {
-            val uri = android.net.Uri.parse(uriString)
-            val doc = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, uri)
-            val path = doc?.uri?.path ?: return null
-            val file = File(path)
-            if (file.exists() || file.mkdirs()) file else null
-        } catch (e: Exception) {
-            null
-        }
+    /**
+     * Raíz de sincronización como File. Con el tree URI de SAF del picker
+     * de carpetas, `DocumentFile.uri.path` NO es una ruta real del sistema
+     * de archivos (produce `/tree/primary:Carpeta/...`, inexistente), lo
+     * que hacía fallar el guardado de shares con un mensaje erróneo de
+     * "sin sesión". Ahora se convierte a la ruta real y, si no es escribible,
+     * se cae a la carpeta interna — el mismo fallback que ya usaba SyncWorker.
+     * Por eso esta función ya no devuelve null.
+     */
+    fun resolveRootFile(): File {
+        val uriString = sessionStore.getSyncRootUri()
+        return SyncRootResolver.resolveRoot(appContext, uriString)
     }
 }

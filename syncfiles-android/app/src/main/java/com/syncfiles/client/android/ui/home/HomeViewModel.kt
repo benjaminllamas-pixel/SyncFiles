@@ -3,7 +3,6 @@ package com.syncfiles.client.android.ui.home
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -21,6 +20,7 @@ import com.syncfiles.client.android.data.local.SyncStatusStore
 import com.syncfiles.client.android.data.storage.SessionStore
 import com.syncfiles.client.android.data.storage.StoredSession
 import com.syncfiles.client.android.data.util.Hashing
+import com.syncfiles.client.android.data.util.SyncRootResolver
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -188,17 +188,27 @@ class HomeViewModel(
 
         store.saveSyncRoot(uri.toString(), displayName)
         _syncRootName.value = displayName
-        _lastMessage.value = "Carpeta sincronizada: $displayName"
 
-        // Reinicia el watcher sobre la nueva carpeta
+        // Reinicia el watcher sobre la nueva carpeta (invalida la caché
+        // del resolver al resolver con el nuevo URI)
         (appContext as? com.syncfiles.client.android.SyncFilesApplication)
             ?.syncEngine?.onSyncRootChanged()
 
         viewModelScope.launch {
             try {
                 val pathFile = resolveRootFile(uri)
-                localStore.scanAndUpsert(pathFile)
-                _lastMessage.value = "Carpeta escaneada: ${localStore.listAll().size} archivos"
+                val isFallback = SyncRootResolver.isInternalFallback(appContext, uri.toString())
+                if (isFallback) {
+                    // La carpeta elegida no es utilizable por ruta de
+                    // archivo (proveedor cloud o no escribible): avisar en
+                    // vez de escanear el fallback interno y presentarlo
+                    // como la carpeta del usuario.
+                    _lastMessage.value =
+                        "Carpeta no accesible por ruta de archivo: se usará almacenamiento interno de la app"
+                } else {
+                    localStore.scanAndUpsert(pathFile)
+                    _lastMessage.value = "Carpeta sincronizada: $displayName (${localStore.listAll().size} archivos)"
+                }
             } catch (e: Exception) {
                 _lastMessage.value = "Carpeta seleccionada: $displayName"
             }
@@ -206,13 +216,7 @@ class HomeViewModel(
     }
 
     private fun resolveRootFile(uri: android.net.Uri): File {
-        val document = androidx.documentfile.provider.DocumentFile.fromTreeUri(appContext, uri)
-        val path = document?.uri?.path
-        return if (path.isNullOrEmpty()) {
-            File(appContext.filesDir, "sync_root").apply { mkdirs() }
-        } else {
-            File(path)
-        }
+        return SyncRootResolver.resolveRoot(appContext, uri.toString())
     }
 
     fun logout(onLoggedOut: () -> Unit) {

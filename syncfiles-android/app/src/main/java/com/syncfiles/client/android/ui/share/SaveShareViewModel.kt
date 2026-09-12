@@ -7,6 +7,7 @@ import com.syncfiles.client.android.data.local.PendingSharesStore
 import com.syncfiles.client.android.data.local.SyncEngine
 import com.syncfiles.client.android.data.storage.SessionStore
 import com.syncfiles.client.android.data.util.ShareNaming
+import com.syncfiles.client.android.data.util.SyncRootResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +35,7 @@ data class SaveShareUiState(
  * Procesa también los shares pendientes almacenados en SQLite.
  */
 class SaveShareViewModel(
+    private val appContext: android.content.Context,
     private val store: SessionStore,
     private val engine: SyncEngine,
     private val pendingStore: PendingSharesStore
@@ -89,9 +91,13 @@ class SaveShareViewModel(
 
     private fun previewPathFor(name: String): String? {
         if (name.isBlank()) return null
-        val rootName = store.getSyncRootName() ?: "carpeta-sync"
         val safe = ShareNaming.ensureTxtExtension(ShareNaming.sanitizeFileName(name))
-        return "$rootName/shared/$safe"
+        val rootLabel = if (SyncRootResolver.isInternalFallback(appContext, store.getSyncRootUri())) {
+            "almacenamiento interno de la app"
+        } else {
+            store.getSyncRootName() ?: "carpeta-sync"
+        }
+        return "$rootLabel/shared/$safe"
     }
 
     fun save() {
@@ -103,7 +109,7 @@ class SaveShareViewModel(
 
         viewModelScope.launch {
             val finalName = withContext(Dispatchers.IO) {
-                val root = engine.resolveRootFile() ?: return@withContext null
+                val root = engine.resolveRootFile()
                 val sharedDir = File(root, "shared").apply { mkdirs() }
                 val name = ShareNaming.ensureTxtExtension(
                     ShareNaming.sanitizeFileName(rawName)
@@ -111,8 +117,7 @@ class SaveShareViewModel(
                 ShareNaming.dedupeFileName(sharedDir, name)
             }
 
-            val savedPath = if (finalName == null) null
-            else withContext(Dispatchers.IO) { engine.ingestNamedShare(content, finalName) }
+            val savedPath = withContext(Dispatchers.IO) { engine.ingestNamedShare(content, finalName) }
 
             // Si llegó un nuevo share a mitad del guardado, la pantalla fue
             // reemplazada: no pisar su estado.
@@ -139,10 +144,15 @@ class SaveShareViewModel(
                         pendingStore.insert(content)
                     }
                 }
+                val message = if (store.getActiveSession() == null) {
+                    "No se pudo guardar: sesión no activa — queda como pendiente"
+                } else {
+                    "No se pudo escribir en la carpeta de sincronización — queda como pendiente (revisa la carpeta en Ajustes)"
+                }
                 _uiState.value = _uiState.value.copy(
                     saving = false,
                     pendingRemaining = pendingStore.count(),
-                    lastMessage = "No se pudo guardar: queda como pendiente — inicia sesión y elige una carpeta"
+                    lastMessage = message
                 )
             }
         }
@@ -175,13 +185,14 @@ class SaveShareViewModel(
     }
 
     class Factory(
+        private val appContext: android.content.Context,
         private val store: SessionStore,
         private val engine: SyncEngine,
         private val pendingStore: PendingSharesStore
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return SaveShareViewModel(store, engine, pendingStore) as T
+            return SaveShareViewModel(appContext, store, engine, pendingStore) as T
         }
     }
 }
