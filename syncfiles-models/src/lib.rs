@@ -526,3 +526,124 @@ CREATE TABLE IF NOT EXISTS metadata (
 );
 "#;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn path_hash_ignores_leading_slash() {
+        // Contrato client/server: "/docs/a.txt" y "docs/a.txt" son la misma ruta.
+        assert_eq!(compute_path_hash("/docs/a.txt"), compute_path_hash("docs/a.txt"));
+        assert_ne!(compute_path_hash("docs/a.txt"), compute_path_hash("docs/b.txt"));
+    }
+
+    #[test]
+    fn path_hash_is_sha256_hex() {
+        let h = compute_path_hash("docs/a.txt");
+        assert_eq!(h.len(), 64);
+        assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn checksum_matches_sha256_reference() {
+        // Vector conocido de SHA-256 ("abc").
+        assert_eq!(
+            compute_checksum(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        // Estable y sensible al contenido.
+        assert_eq!(compute_checksum(b""), compute_checksum(b""));
+        assert_ne!(compute_checksum(b"a"), compute_checksum(b"b"));
+    }
+
+    #[test]
+    fn upload_request_roundtrip_preserves_fields() {
+        let req = UploadRequest {
+            session_id: "s1".into(),
+            device_id: "d1".into(),
+            file_id: "f1".into(),
+            relative_path: "docs/a.txt".into(),
+            path_hash: compute_path_hash("docs/a.txt"),
+            checksum: compute_checksum(b"hola"),
+            size_bytes: 4,
+            modified_at: 42,
+            idempotency_key: "idem-1".into(),
+            content: "aG9sYQ==".into(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: UploadRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.relative_path, "docs/a.txt");
+        assert_eq!(back.idempotency_key, "idem-1");
+        assert_eq!(back.content, "aG9sYQ==");
+        // El JSON usa exactamente los nombres del contrato REST.
+        assert!(json.contains("\"relative_path\""));
+        assert!(json.contains("\"idempotency_key\""));
+    }
+
+    #[test]
+    fn diff_response_parses_server_payload() {
+        // Payload real emitido por el servidor (snake_case, campos opcionales).
+        let json = r#"{
+            "changes": [
+                {
+                    "file_id": "f1",
+                    "operation": "upload",
+                    "path_hash": "abc",
+                    "checksum": "def",
+                    "modified_at": 7,
+                    "device_id": "otro-device",
+                    "relative_path": "docs/a.txt",
+                    "content": null,
+                    "size_bytes": 10
+                }
+            ],
+            "server_seq": 5
+        }"#;
+        let diff: DiffResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(diff.changes.len(), 1);
+        assert_eq!(diff.server_seq, 5);
+        assert_eq!(diff.changes[0].operation, "upload");
+        assert_eq!(diff.changes[0].relative_path.as_deref(), Some("docs/a.txt"));
+        assert!(diff.changes[0].content.is_none());
+    }
+
+    #[test]
+    fn api_error_parses_conflict_shape() {
+        // El 409 de conflicto llega como ApiError embebido en ApiResponse.
+        let json = r#"{
+            "accepted": false,
+            "status": "conflict",
+            "server_seq": 12,
+            "data": null,
+            "error": {
+                "code": "CONFLICT",
+                "message": "Conflicto de checksum detectado",
+                "retryable": false,
+                "request_id": "req-1"
+            }
+        }"#;
+        let resp: ApiResponse<()> = serde_json::from_str(json).unwrap();
+        let err = resp.error.expect("error presente");
+        assert_eq!(err.code, "CONFLICT");
+        assert!(!err.retryable);
+        assert!(!resp.accepted);
+    }
+
+    #[test]
+    fn resolve_conflict_request_serializes_decision() {
+        let req = ResolveConflictRequest {
+            session_id: "s1".into(),
+            device_id: "d1".into(),
+            conflict_id: "c1".into(),
+            decision: "keep_local".into(),
+            preserve_alternative: true,
+            new_name: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"decision\":\"keep_local\""));
+        assert!(json.contains("\"preserve_alternative\":true"));
+        let back: ResolveConflictRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.decision, "keep_local");
+    }
+}

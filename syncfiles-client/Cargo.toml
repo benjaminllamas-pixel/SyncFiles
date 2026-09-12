@@ -26,3 +26,6 @@ syncfiles-models = { path = "../syncfiles-models" }
 base64 = "0.21"
 
 [build-dependencies]
+
+[dev-dependencies]
+tempfile = "3"
