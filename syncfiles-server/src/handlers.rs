@@ -106,30 +106,25 @@ pub async fn diff_handler(
 
     let user_id = &session.user_id;
     let since = req.since;
-    let changes = crate::db::get_files_modified_since(&state.pool, user_id, since).await.unwrap_or_default();
+    let mut changes = crate::db::get_changes_since(&state.pool, user_id, since, &req.device_id, 500)
+        .await
+        .unwrap_or_default();
 
-    let change_entries: Vec<ChangeEntry> = changes.iter().map(|f| {
-        let operation = if f.status == "deleted" { "delete".to_string() } else { "upload".to_string() };
-        ChangeEntry {
-            file_id: f.file_id.clone(),
-            operation,
-            path_hash: f.path_hash.clone(),
-            checksum: f.checksum.clone(),
-            modified_at: if f.deleted_at.is_some() { f.deleted_at.unwrap_or(f.modified_at) } else { f.modified_at },
-            device_id: f.device_id.clone(),
-            relative_path: Some(f.relative_path.clone()),
-            content: None,
-            size_bytes: Some(f.size_bytes),
-        }
-    }).collect();
+    // server_seq = seq de la última fila devuelta (ORDER BY seq ASC); si no
+    // hay filas, el máximo global del usuario (cursor al día). Si LIMIT trunca,
+    // el cursor queda en la última devuelta y el resto llega en el ciclo siguiente.
+    let server_seq = match changes.last() {
+        Some((seq, _)) => *seq,
+        None => crate::db::get_max_seq(&state.pool, Some(user_id)).await.unwrap_or(0),
+    };
 
-    let server_seq = state.next_server_seq();
     let _ = crate::db::set_last_server_seq(&state.pool, server_seq).await;
 
-    info!("Diff: {} changes for user {}", change_entries.len(), user_id);
+    info!("Diff: {} cambios para {} (since={})", changes.len(), user_id, since);
 
+    let changes: Vec<ChangeEntry> = changes.drain(..).map(|(_, entry)| entry).collect();
     Ok(HttpResponse::Ok().json(DiffResponse {
-        changes: change_entries,
+        changes,
         server_seq,
     }))
 }
@@ -245,11 +240,32 @@ pub async fn upload_handler(
         return Ok(bad_request("DB_ERROR", e.to_string()));
     }
 
+    let server_seq = match crate::db::append_change_log(
+        &state.pool,
+        &session.user_id,
+        &file_entry.file_id,
+        &req.device_id,
+        "upload",
+        &req.path_hash,
+        &req.relative_path,
+        None,
+        &req.checksum,
+        Some(req.size_bytes),
+        req.modified_at,
+    )
+    .await
+    {
+        Ok(seq) => seq,
+        Err(e) => {
+            warn!("No se pudo anexar al change_log: {}", e);
+            state.next_server_seq()
+        }
+    };
+
     if let Err(e) = crate::db::record_idempotency(&state.pool, &req.idempotency_key, &session.session_id).await {
         warn!("No se pudo registrar idempotency_key: {}", e);
     }
 
-    let server_seq = state.next_server_seq();
     info!("Upload aceptado: {} ({} bytes)", req.relative_path, req.size_bytes);
 
     Ok(ok_response::<()>(None, server_seq))
@@ -318,11 +334,32 @@ pub async fn delete_handler(
         return Ok(bad_request("DB_ERROR", e.to_string()));
     }
 
+    let server_seq = match crate::db::append_change_log(
+        &state.pool,
+        &session.user_id,
+        &file.file_id,
+        &req.device_id,
+        "delete",
+        &file.path_hash,
+        &file.relative_path,
+        None,
+        &file.checksum,
+        Some(file.size_bytes),
+        now_ms(),
+    )
+    .await
+    {
+        Ok(seq) => seq,
+        Err(e) => {
+            warn!("No se pudo anexar al change_log: {}", e);
+            state.next_server_seq()
+        }
+    };
+
     if let Err(e) = crate::db::record_idempotency(&state.pool, &req.idempotency_key, &session.session_id).await {
         warn!("No se pudo registrar idempotency_key: {}", e);
     }
 
-    let server_seq = state.next_server_seq();
     Ok(ok_response::<()>(None, server_seq))
 }
 
@@ -362,11 +399,32 @@ pub async fn rename_handler(
         return Ok(bad_request("DB_ERROR", e.to_string()));
     }
 
+    let server_seq = match crate::db::append_change_log(
+        &state.pool,
+        &session.user_id,
+        &req.file_id,
+        &req.device_id,
+        "rename",
+        &compute_path_hash(&new_normalized),
+        &new_normalized,
+        Some(&old_path),
+        &file.checksum,
+        Some(file.size_bytes),
+        now_ms(),
+    )
+    .await
+    {
+        Ok(seq) => seq,
+        Err(e) => {
+            warn!("No se pudo anexar al change_log: {}", e);
+            state.next_server_seq()
+        }
+    };
+
     if let Err(e) = crate::db::record_idempotency(&state.pool, &req.idempotency_key, &session.session_id).await {
         warn!("No se pudo registrar idempotency_key: {}", e);
     }
 
-    let server_seq = state.next_server_seq();
     Ok(ok_response::<()>(None, server_seq))
 }
 
@@ -406,11 +464,32 @@ pub async fn move_handler(
         return Ok(bad_request("DB_ERROR", e.to_string()));
     }
 
+    let server_seq = match crate::db::append_change_log(
+        &state.pool,
+        &session.user_id,
+        &req.file_id,
+        &req.device_id,
+        "move",
+        &compute_path_hash(&new_normalized),
+        &new_normalized,
+        Some(&old_path),
+        &file.checksum,
+        Some(file.size_bytes),
+        now_ms(),
+    )
+    .await
+    {
+        Ok(seq) => seq,
+        Err(e) => {
+            warn!("No se pudo anexar al change_log: {}", e);
+            state.next_server_seq()
+        }
+    };
+
     if let Err(e) = crate::db::record_idempotency(&state.pool, &req.idempotency_key, &session.session_id).await {
         warn!("No se pudo registrar idempotency_key: {}", e);
     }
 
-    let server_seq = state.next_server_seq();
     Ok(ok_response::<()>(None, server_seq))
 }
 
@@ -474,11 +553,32 @@ pub async fn copy_handler(
         return Ok(bad_request("DB_ERROR", e.to_string()));
     }
 
+    let server_seq = match crate::db::append_change_log(
+        &state.pool,
+        &session.user_id,
+        &new_file_id,
+        &req.device_id,
+        "copy",
+        &new_entry.path_hash,
+        &dst_normalized,
+        None,
+        &new_entry.checksum,
+        Some(new_entry.size_bytes),
+        now,
+    )
+    .await
+    {
+        Ok(seq) => seq,
+        Err(e) => {
+            warn!("No se pudo anexar al change_log: {}", e);
+            state.next_server_seq()
+        }
+    };
+
     if let Err(e) = crate::db::record_idempotency(&state.pool, &req.idempotency_key, &session.session_id).await {
         warn!("No se pudo registrar idempotency_key: {}", e);
     }
 
-    let server_seq = state.next_server_seq();
     Ok(ok_response::<()>(None, server_seq))
 }
 
@@ -733,6 +833,23 @@ pub async fn resolve_conflict_handler(
                         }
                         if let Some(ref f) = file {
                             let _ = crate::db::rename_file(&state.pool, &f.file_id, &dst).await;
+                            if let Err(e) = crate::db::append_change_log(
+                                &state.pool,
+                                &session.user_id,
+                                &f.file_id,
+                                &req.device_id,
+                                "rename",
+                                &compute_path_hash(&dst),
+                                &dst,
+                                Some(&relative_path),
+                                &f.checksum,
+                                Some(f.size_bytes),
+                                now_ms(),
+                            )
+                            .await
+                            {
+                                warn!("No se pudo anexar resolución rename al change_log: {}", e);
+                            }
                         }
                     }
                 }
@@ -749,12 +866,12 @@ pub async fn resolve_conflict_handler(
                             let checksum = format!("{:x}", Sha256::digest(&content_bytes));
                             let new_file_id = uuid_str();
                             let new_entry = FileEntry {
-                                file_id: new_file_id,
+                                file_id: new_file_id.clone(),
                                 user_id: session.user_id.clone(),
                                 device_id: device_id.clone(),
                                 relative_path: dst.clone(),
                                 path_hash: compute_path_hash(&dst),
-                                checksum,
+                                checksum: checksum.clone(),
                                 size_bytes: content_bytes.len() as i64,
                                 modified_at: now_ms(),
                                 synced_at: Some(now_ms()),
@@ -764,6 +881,23 @@ pub async fn resolve_conflict_handler(
                                 content: None,
                             };
                             let _ = crate::db::upsert_file(&state.pool, &new_entry).await;
+                            if let Err(e) = crate::db::append_change_log(
+                                &state.pool,
+                                &session.user_id,
+                                &new_file_id,
+                                &req.device_id,
+                                "copy",
+                                &new_entry.path_hash,
+                                &dst,
+                                None,
+                                &checksum,
+                                Some(new_entry.size_bytes),
+                                new_entry.modified_at,
+                            )
+                            .await
+                            {
+                                warn!("No se pudo anexar resolución copy al change_log: {}", e);
+                            }
                         }
                     }
                 }

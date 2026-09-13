@@ -1,7 +1,7 @@
 use anyhow::Result;
 use sqlx::SqlitePool;
 use crate::models::*;
-use syncfiles_models::{User, Session, FileEntry, SyncQueueEntry, Conflict, AuditEntry};
+use syncfiles_models::{User, Session, FileEntry, SyncQueueEntry, Conflict, AuditEntry, ChangeEntry};
 
 fn now_ms_local() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -92,7 +92,137 @@ pub async fn init_db(pool: &SqlitePool) -> Result<()> {
             let _ = sqlx::query(stmt).execute(pool).await;
         }
     }
+    backfill_change_log(pool).await?;
     Ok(())
+}
+
+/// Backfill: si `change_log` está vacío y `files` tiene filas, crea una
+/// entrada por archivo (upload/delete) para que los clientes con cursor
+/// antiguo o nuevo reciban estado completo. Se ejecuta solo una vez.
+async fn backfill_change_log(pool: &SqlitePool) -> Result<()> {
+    let log_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM change_log")
+        .fetch_one(pool)
+        .await?;
+    if log_count > 0 {
+        return Ok(());
+    }
+    let files_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM files")
+        .fetch_one(pool)
+        .await?;
+    if files_count == 0 {
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO change_log (user_id, file_id, device_id, operation, path_hash, relative_path, old_path, checksum, size_bytes, modified_at)
+         SELECT user_id, file_id, device_id,
+                CASE WHEN status = 'deleted' THEN 'delete' ELSE 'upload' END,
+                path_hash, relative_path, NULL, checksum, size_bytes,
+                COALESCE(deleted_at, modified_at)
+         FROM files"
+    )
+    .execute(pool)
+    .await?;
+    tracing::info!("Backfill change_log: {} entradas creadas desde files", files_count);
+    Ok(())
+}
+
+/// Anexa una entrada al change_log y devuelve el seq asignado.
+pub async fn append_change_log(
+    pool: &SqlitePool,
+    user_id: &str,
+    file_id: &str,
+    device_id: &str,
+    operation: &str,
+    path_hash: &str,
+    relative_path: &str,
+    old_path: Option<&str>,
+    checksum: &str,
+    size_bytes: Option<i64>,
+    modified_at: i64,
+) -> Result<i64> {
+    let seq: i64 = sqlx::query_scalar(
+        "INSERT INTO change_log (user_id, file_id, device_id, operation, path_hash, relative_path, old_path, checksum, size_bytes, modified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING seq"
+    )
+    .bind(user_id)
+    .bind(file_id)
+    .bind(device_id)
+    .bind(operation)
+    .bind(path_hash)
+    .bind(relative_path)
+    .bind(old_path)
+    .bind(checksum)
+    .bind(size_bytes)
+    .bind(modified_at)
+    .fetch_one(pool)
+    .await?;
+    Ok(seq)
+}
+
+/// Lee los cambios posteriores al cursor, excluyendo el dispositivo que pregunta.
+/// `since` es un cursor de `seq` (no timestamp). Devuelve (seq, entrada) para
+/// que el diff pueda avanzar el cursor al último seq devuelto.
+pub async fn get_changes_since(
+    pool: &SqlitePool,
+    user_id: &str,
+    since: i64,
+    exclude_device: &str,
+    limit: i64,
+) -> Result<Vec<(i64, ChangeEntry)>> {
+    let rows: Vec<(i64, String, String, String, String, Option<String>, Option<String>, String, Option<i64>, i64)> =
+        sqlx::query_as(
+            "SELECT seq, file_id, operation, path_hash, checksum, relative_path, old_path, device_id, size_bytes, modified_at
+             FROM change_log
+             WHERE user_id = ? AND seq > ? AND device_id != ?
+             ORDER BY seq ASC
+             LIMIT ?"
+        )
+        .bind(user_id)
+        .bind(since)
+        .bind(exclude_device)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(seq, file_id, operation, path_hash, checksum, relative_path, old_path, device_id, size_bytes, modified_at)| {
+            (
+                seq,
+                ChangeEntry {
+                    file_id,
+                    operation,
+                    path_hash,
+                    checksum,
+                    modified_at,
+                    device_id,
+                    relative_path,
+                    old_path,
+                    content: None,
+                    size_bytes,
+                },
+            )
+        })
+        .collect())
+}
+
+/// Máximo seq global del change_log (0 si está vacío). Si `user_id` es Some,
+/// restringe al usuario (usado por el diff para el server_seq de respuesta).
+pub async fn get_max_seq(pool: &SqlitePool, user_id: Option<&str>) -> Result<i64> {
+    let seq: i64 = match user_id {
+        Some(uid) => {
+            sqlx::query_scalar("SELECT COALESCE(MAX(seq), 0) FROM change_log WHERE user_id = ?")
+                .bind(uid)
+                .fetch_one(pool)
+                .await?
+        }
+        None => {
+            sqlx::query_scalar("SELECT COALESCE(MAX(seq), 0) FROM change_log")
+                .fetch_one(pool)
+                .await?
+        }
+    };
+    Ok(seq)
 }
 
 pub async fn get_user_by_email(pool: &SqlitePool, email: &str) -> Result<Option<User>> {
@@ -400,32 +530,6 @@ pub async fn get_storage_stats(pool: &SqlitePool, user_id: &str) -> Result<(i64,
     Ok((used_bytes, file_count, last_modified_at))
 }
 
-pub async fn get_files_modified_since(pool: &SqlitePool, user_id: &str, since: i64) -> Result<Vec<FileEntry>> {
-    let rows = sqlx::query_as::<_, FileEntryRow>(
-        "SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at, content FROM files WHERE user_id = ? AND (modified_at > ? OR deleted_at > ?)"
-    )
-    .bind(user_id)
-    .bind(since)
-    .bind(since)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows.into_iter().map(|r| FileEntry {
-        file_id: r.file_id,
-        user_id: r.user_id,
-        device_id: r.device_id,
-        relative_path: r.relative_path,
-        path_hash: r.path_hash,
-        checksum: r.checksum,
-        size_bytes: r.size_bytes,
-        modified_at: r.modified_at,
-        synced_at: r.synced_at,
-        status: r.status,
-        last_sync_version: r.last_sync_version,
-        deleted_at: r.deleted_at,
-        content: r.content,
-    }).collect())
-}
-
 pub async fn get_file_by_id(pool: &SqlitePool, file_id: &str) -> Result<Option<FileEntry>> {
     let row = sqlx::query_as::<_, FileEntryRow>(
         "SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at, content FROM files WHERE file_id = ?"
@@ -680,11 +784,137 @@ pub async fn delete_file(pool: &SqlitePool, file_id: &str) -> Result<()> {
 
 pub async fn rename_file(pool: &SqlitePool, file_id: &str, new_relative_path: &str) -> Result<()> {
     let path_hash = syncfiles_models::compute_path_hash(new_relative_path);
-    sqlx::query("UPDATE files SET relative_path = ?, path_hash = ? WHERE file_id = ?")
+    sqlx::query("UPDATE files SET relative_path = ?, path_hash = ?, modified_at = ? WHERE file_id = ?")
         .bind(new_relative_path)
         .bind(path_hash)
+        .bind(now_ms_local())
         .bind(file_id)
         .execute(pool)
         .await?;
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn test_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("pool");
+        init_db(&pool).await.expect("init_db");
+        seed_user_and_device(&pool).await;
+        pool
+    }
+
+    async fn seed_user_and_device(pool: &SqlitePool) {
+        sqlx::query("INSERT OR IGNORE INTO users (user_id, email, password_hash, display_name, created_at, updated_at) VALUES ('user-1', 'u@x', 'hash', NULL, 0, 0)")
+            .execute(pool).await.unwrap();
+        sqlx::query("INSERT OR IGNORE INTO devices (device_id, user_id, platform, device_name, last_seen_at, created_at) VALUES ('device-1', 'user-1', 'test', NULL, 0, 0)")
+            .execute(pool).await.unwrap();
+    }
+
+    fn sample_entry(path: &str, status: &str) -> FileEntry {
+        FileEntry {
+            file_id: syncfiles_models::uuid_str(),
+            user_id: "user-1".into(),
+            device_id: "device-1".into(),
+            relative_path: path.into(),
+            path_hash: syncfiles_models::compute_path_hash(path),
+            checksum: syncfiles_models::compute_checksum(b"hola"),
+            size_bytes: 4,
+            modified_at: 1_000,
+            synced_at: Some(1_000),
+            status: status.into(),
+            last_sync_version: 0,
+            deleted_at: None,
+            content: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn append_then_get_changes_since_orders_and_filters_by_device() {
+        let pool = test_pool().await;
+
+        let s1 = append_change_log(&pool, "user-1", "f1", "dev-a", "upload", "h1", "a.txt", None, "c1", Some(4), 1).await.unwrap();
+        let s2 = append_change_log(&pool, "user-1", "f1", "dev-a", "rename", "h2", "b.txt", Some("a.txt"), "c1", Some(4), 2).await.unwrap();
+        let _s3 = append_change_log(&pool, "user-1", "f2", "dev-b", "upload", "h3", "c.txt", None, "c2", Some(5), 3).await.unwrap();
+        assert!(s1 < s2 && s2 < _s3, "AUTOINCREMENT asigna seqs crecientes");
+
+        // dev-b pregunta: ve los cambios de dev-a en orden, no los propios
+        let changes = get_changes_since(&pool, "user-1", 0, "dev-b", 500).await.unwrap();
+        assert_eq!(changes.len(), 2);
+        assert_eq!(changes[0].1.operation, "upload");
+        assert_eq!(changes[0].1.relative_path.as_deref(), Some("a.txt"));
+        assert_eq!(changes[1].1.operation, "rename");
+        assert_eq!(changes[1].1.old_path.as_deref(), Some("a.txt"));
+        assert_eq!(changes[1].1.relative_path.as_deref(), Some("b.txt"));
+
+        // dev-a pregunta: solo ve el cambio de dev-b
+        let changes = get_changes_since(&pool, "user-1", 0, "dev-a", 500).await.unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].1.file_id, "f2");
+
+        // Cursor intermedio: no repite lo ya visto
+        let changes = get_changes_since(&pool, "user-1", s1, "dev-b", 500).await.unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].1.operation, "rename");
+
+        // Otro usuario no ve nada
+        let changes = get_changes_since(&pool, "user-2", 0, "dev-b", 500).await.unwrap();
+        assert!(changes.is_empty());
+
+        // Limit trunca y el cursor queda en la última devuelta
+        let limited = get_changes_since(&pool, "user-1", 0, "dev-b", 1).await.unwrap();
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0].0, s1);
+    }
+
+    #[tokio::test]
+    async fn backfill_runs_once_and_reflects_files_state() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        // Esquema sin backfill: ejecutar init_db dos veces con filas en files
+        init_db(&pool).await.unwrap(); // esquema
+        seed_user_and_device(&pool).await;
+        upsert_file(&pool, &sample_entry("live.txt", "synced")).await.unwrap();
+        let mut deleted = sample_entry("gone.txt", "deleted");
+        deleted.deleted_at = Some(2_000);
+        upsert_file(&pool, &deleted).await.unwrap();
+
+        init_db(&pool).await.unwrap(); // primera vez → backfill
+        let changes = get_changes_since(&pool, "user-1", 0, "device-otro", 500).await.unwrap();
+        assert_eq!(changes.len(), 2);
+        let ops: Vec<&str> = changes.iter().map(|(_, c)| c.operation.as_str()).collect();
+        assert!(ops.contains(&"upload"));
+        assert!(ops.contains(&"delete"));
+        // modified_at del delete usa COALESCE(deleted_at, modified_at)
+        let delete_entry = changes.iter().find(|(_, c)| c.operation == "delete").unwrap();
+        assert_eq!(delete_entry.1.modified_at, 2_000);
+
+        let count_after_first: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM change_log")
+            .fetch_one(&pool).await.unwrap();
+        init_db(&pool).await.unwrap(); // segunda vez → no duplica
+        let count_after_second: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM change_log")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(count_after_first, count_after_second);
+    }
+
+    #[tokio::test]
+    async fn rename_file_bumps_modified_at() {
+        let pool = test_pool().await;
+        let entry = sample_entry("docs/viejo.txt", "synced");
+        upsert_file(&pool, &entry).await.unwrap();
+
+        rename_file(&pool, &entry.file_id, "docs/nuevo.txt").await.unwrap();
+
+        let renamed = get_file_by_id(&pool, &entry.file_id).await.unwrap().expect("archivo");
+        assert_eq!(renamed.relative_path, "docs/nuevo.txt");
+        assert!(renamed.modified_at > entry.modified_at, "rename debe bump de modified_at");
+    }
 }

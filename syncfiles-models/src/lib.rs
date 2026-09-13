@@ -132,6 +132,8 @@ pub struct ChangeEntry {
     pub modified_at: i64,
     pub device_id: String,
     pub relative_path: Option<String>,
+    #[serde(default)]
+    pub old_path: Option<String>,
     pub content: Option<String>,
     pub size_bytes: Option<i64>,
 }
@@ -436,6 +438,21 @@ CREATE TABLE IF NOT EXISTS metadata (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS change_log (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    path_hash TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    old_path TEXT,
+    checksum TEXT NOT NULL,
+    size_bytes INTEGER,
+    modified_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_change_log_user_seq ON change_log(user_id, seq);
 CREATE INDEX IF NOT EXISTS idx_files_user_path ON files(user_id, path_hash);
 CREATE INDEX IF NOT EXISTS idx_files_user_deleted ON files(user_id, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_user_status ON sync_queue(user_id, status, created_at);
@@ -606,6 +623,44 @@ mod tests {
         assert_eq!(diff.changes[0].operation, "upload");
         assert_eq!(diff.changes[0].relative_path.as_deref(), Some("docs/a.txt"));
         assert!(diff.changes[0].content.is_none());
+    }
+
+    #[test]
+    fn change_entry_roundtrip_preserves_old_path() {
+        let entry = ChangeEntry {
+            file_id: "f1".into(),
+            operation: "rename".into(),
+            path_hash: compute_path_hash("docs/nuevo.txt"),
+            checksum: compute_checksum(b"x"),
+            modified_at: 99,
+            device_id: "dev-1".into(),
+            relative_path: Some("docs/nuevo.txt".into()),
+            old_path: Some("docs/viejo.txt".into()),
+            content: None,
+            size_bytes: Some(1),
+        };
+        let json = serde_json::to_string(&entry).unwrap();
+        let back: ChangeEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.old_path.as_deref(), Some("docs/viejo.txt"));
+        assert!(json.contains("\"old_path\":\"docs/viejo.txt\""));
+    }
+
+    #[test]
+    fn change_entry_tolerates_missing_old_path() {
+        // Servidores viejos no emiten old_path → None (compatible en ambas direcciones).
+        let json = r#"{
+            "file_id": "f1",
+            "operation": "upload",
+            "path_hash": "abc",
+            "checksum": "def",
+            "modified_at": 7,
+            "device_id": "dev-1",
+            "relative_path": "a.txt",
+            "content": null,
+            "size_bytes": null
+        }"#;
+        let entry: ChangeEntry = serde_json::from_str(json).unwrap();
+        assert!(entry.old_path.is_none());
     }
 
     #[test]

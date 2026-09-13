@@ -147,7 +147,7 @@ Estilo: `syncfiles-cli <comando> [args]`. Conexión vía env (con defaults): `SF
 | `download <file_id> <destino>` | Descarga el contenido a `<destino>` |
 | `delete <file_id>` | Marca el archivo como borrado |
 | `rename <file_id> <nuevo-nombre>` | Renombra en el servidor |
-| `diff <since_ms>` | Lista cambios desde un timestamp (0 = todo) |
+| `diff <seq>` | Lista cambios del servidor posteriores al cursor `seq` (0 = todo). El cursor es el `server_seq` devuelto por el propio `diff` y avanza solo tras aplicar todos los cambios; no es un timestamp |
 | `session-status` | Estado de la sesión actual |
 | `logout` | Cierra la sesión |
 
@@ -166,8 +166,8 @@ $CLI upload /tmp/prueba.txt
 # {"status":"ok",...}
 
 $CLI diff 0
-# {"changes":[{"file_id":"...","relative_path":"prueba.txt",...}]}
-# (copia el file_id del resultado)
+# {"changes":[{"file_id":"...","relative_path":"prueba.txt",...}],"server_seq":7}
+# (copia el file_id del resultado; el server_seq es el cursor del próximo diff)
 
 $CLI download <file_id> /tmp/bajada.txt
 # Saved 5 bytes to /tmp/bajada.txt

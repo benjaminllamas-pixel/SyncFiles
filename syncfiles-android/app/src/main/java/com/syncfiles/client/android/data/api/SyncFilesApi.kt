@@ -63,6 +63,7 @@ data class ChangeEntry(
     val modified_at: Long,
     val device_id: String,
     val relative_path: String?,
+    val old_path: String? = null,
     val content: String?,
     val size_bytes: Long?
 )

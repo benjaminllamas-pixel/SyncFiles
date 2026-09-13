@@ -55,13 +55,9 @@ impl AppState {
             .await?;
         }
 
-        let seq = sqlx::query_scalar::<_, String>(
-            "SELECT COALESCE((SELECT value FROM metadata WHERE key = 'last_server_seq'), '0')"
-        )
-        .fetch_optional(&pool)
-        .await?
-        .unwrap_or("0".to_string());
-        let seq: i64 = seq.parse().unwrap_or(0);
+        // Contador decorativo para handlers de solo lectura; los que mutan
+        // usan el seq del change_log (fuente de verdad del diff).
+        let seq = db::get_max_seq(&pool, None).await.unwrap_or(0);
 
         let storage = Arc::new(LocalDiskStorageProvider::new(&config.storage_root));
         storage.init()?;

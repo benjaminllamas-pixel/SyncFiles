@@ -3850,6 +3850,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "syncfiles-models",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",

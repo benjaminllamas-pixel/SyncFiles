@@ -204,7 +204,69 @@ class SyncWorker(
                         Log.i(tag, "Borrado local: $relative")
                     }
                 }
-                else -> Unit
+                "rename", "move" -> {
+                    val newRelative = change.relative_path ?: continue
+                    val oldRelative = change.old_path
+                    val root = localRoot()
+                    val source = oldRelative?.let { File(root, it) }
+                    if (source != null && source.exists()) {
+                        val target = File(root, newRelative)
+                        target.parentFile?.mkdirs()
+                        if (source.renameTo(target)) {
+                            Log.i(tag, "Renombrado local: $oldRelative -> $newRelative")
+                        } else {
+                            Log.w(tag, "No se pudo renombrar local: $oldRelative -> $newRelative")
+                        }
+                    } else {
+                        // Replay en instalación nueva: el origen no existe;
+                        // solo registrar el LocalFile con el path nuevo.
+                        Log.i(tag, "Origen de rename no existe localmente: ${oldRelative ?: "?"}; se registra $newRelative")
+                    }
+                    localStore.upsert(
+                        LocalFile(
+                            fileId = change.file_id,
+                            relativePath = newRelative,
+                            pathHash = change.path_hash,
+                            checksum = change.checksum,
+                            sizeBytes = change.size_bytes ?: 0L,
+                            modifiedAt = change.modified_at,
+                            status = "synced",
+                            lastSyncVersion = 0
+                        )
+                    )
+                }
+                "copy" -> {
+                    // Igual que upload: descargar por file_id/path_hash y
+                    // escribir en relative_path (el destino de la copia).
+                    val relative = change.relative_path ?: continue
+                    val root = localRoot()
+                    val target = File(root, relative)
+                    val response = api.download(
+                        com.syncfiles.client.android.data.api.DownloadRequest(
+                            session_id = session.sessionId,
+                            device_id = session.deviceId,
+                            file_id = change.file_id,
+                            path_hash = change.path_hash,
+                            idempotency_key = ApiClientFactory.newIdempotencyKey()
+                        )
+                    )
+                    target.parentFile?.mkdirs()
+                    val bytes = Base64.decode(response.content, Base64.NO_WRAP)
+                    target.writeBytes(bytes)
+                    localStore.upsert(
+                        LocalFile(
+                            fileId = change.file_id,
+                            relativePath = relative,
+                            pathHash = change.path_hash,
+                            checksum = response.checksum,
+                            sizeBytes = bytes.size.toLong(),
+                            modifiedAt = System.currentTimeMillis(),
+                            status = "synced",
+                            lastSyncVersion = 0
+                        )
+                    )
+                }
+                else -> Log.i(tag, "Operación remota ignorada: ${change.operation}")
             }
         }
 

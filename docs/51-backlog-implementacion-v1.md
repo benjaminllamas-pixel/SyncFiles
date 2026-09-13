@@ -136,8 +136,18 @@ doble slash (`//api/v1/...`) que Actix resolvía como 404 — el cliente solo
 podía hacer push y nunca pull. Corregido en `network.rs`; todos los
 endpoints ahora responden 200 desde el cliente desktop.
 
-Limitación conocida: el pull solo aplica operaciones `upload` y `delete`;
-`rename`/`move`/`copy` remotos se ignoran con log "no implementada".
+Ampliación (pull de rename/move/copy + deletes locales): el server ahora
+mantiene un `change_log` (fuente de verdad del diff) donde cada mutación
+anexa una entrada (`upload`/`delete`/`rename`/`move`/`copy` con `old_path`);
+el `diff` consulta ese log por cursor de `seq` (no por timestamp — antes
+`since` se comparaba contra `modified_at`, re-descargando todo en cada
+ciclo). El cliente desktop aplica renames/moves remotos con `old_path` como
+fallback, detecta deletes locales en `reconcile` (estados `synced`/`pending`
+sin archivo en disco, ignorando dotfiles) y los propaga con `NOT_FOUND`
+como éxito idempotente. El cliente Android aplica `rename`/`move`/`copy`
+en `SyncWorker`. Backfill de arranque: si `change_log` está vacío se crea
+una entrada por archivo existente (una sola vez). Verificado con
+`scripts/e2e-rename-move-copy.sh` (27 checks).
 
 #### Tarea 3.4 — Resolución de conflicto — COMPLETADA
 - [x] Detectar conflictos reales (checksum mismatch → 409).

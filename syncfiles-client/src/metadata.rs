@@ -156,6 +156,54 @@ impl MetadataStore {
         Ok(result)
     }
 
+    /// Archivos marcados 'deleted' cuyo delete aún no se ha propagado (synced_at NULL).
+    pub fn get_deleted_unsynced(&self) -> Result<Vec<FileEntry>> {
+        let mut stmt = self.conn.prepare("SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at FROM files WHERE status = 'deleted' AND synced_at IS NULL")?;
+        let rows = stmt.query_map([], |row| {
+            Ok(FileEntry {
+                file_id: row.get(0)?,
+                user_id: row.get(1)?,
+                device_id: row.get(2)?,
+                relative_path: row.get(3)?,
+                path_hash: row.get(4)?,
+                checksum: row.get(5)?,
+                size_bytes: row.get(6)?,
+                modified_at: row.get(7)?,
+                synced_at: row.get(8)?,
+                status: row.get(9)?,
+                last_sync_version: row.get(10)?,
+                deleted_at: row.get(11)?,
+                content: None,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    /// Marca por file_id un delete como propagado (synced_at seteado), sin
+    /// cambiar el estado 'deleted' (evita re-envíos; reconcile no la re-detecta).
+    pub fn mark_delete_synced(&self, file_id: &str) -> Result<()> {
+        let now = Utc::now().timestamp_millis();
+        self.conn.execute(
+            "UPDATE files SET synced_at = ?1, deleted_at = COALESCE(deleted_at, ?1) WHERE file_id = ?2",
+            params![now, file_id],
+        )?;
+        Ok(())
+    }
+
+    /// Restaura a 'pending' un archivo marcado 'deleted' que reapareció en disco.
+    pub fn restore_to_pending(&self, file_id: &str) -> Result<()> {
+        let now = Utc::now().timestamp_millis();
+        self.conn.execute(
+            "UPDATE files SET status = 'pending', synced_at = NULL, deleted_at = NULL, modified_at = ?1 WHERE file_id = ?2",
+            params![now, file_id],
+        )?;
+        Ok(())
+    }
+
     pub fn get_file_by_id(&self, file_id: &str) -> Result<Option<FileEntry>> {
         let mut stmt = self.conn.prepare("SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at FROM files WHERE file_id = ?1")?;
         let result = stmt.query_row(params![file_id], |row| {
@@ -714,6 +762,31 @@ mod tests {
         assert_eq!(log.len(), 1);
         assert_eq!(log[0].event_name, "test.event");
         assert_eq!(log[0].payload_json.as_deref(), Some("{\"x\":1}"));
+        cleanup(&tmp);
+    }
+
+    #[test]
+    fn deleted_unsynced_flow_mark_and_restore() {
+        let (store, tmp) = store_in_dir("deleted-unsynced");
+        let mut entry = sample_file("gone.txt", "synced");
+        entry.synced_at = Some(1234);
+        store.upsert_file(&entry).unwrap();
+
+        // Local delete detectado: synced_at se resetea al pasar a 'deleted'
+        store.update_file_status("gone.txt", "deleted").unwrap();
+        let unsynced = store.get_deleted_unsynced().unwrap();
+        assert_eq!(unsynced.len(), 1);
+        assert_eq!(unsynced[0].file_id, entry.file_id);
+
+        // Tras propagar el delete, ya no vuelve a listarse
+        store.mark_delete_synced(&entry.file_id).unwrap();
+        assert!(store.get_deleted_unsynced().unwrap().is_empty());
+
+        // Si reaparece en disco, vuelve a 'pending'
+        store.restore_to_pending(&entry.file_id).unwrap();
+        let restored = store.get_file_by_relative_path("gone.txt").unwrap().unwrap();
+        assert_eq!(restored.status, "pending");
+        assert!(restored.deleted_at.is_none());
         cleanup(&tmp);
     }
 }

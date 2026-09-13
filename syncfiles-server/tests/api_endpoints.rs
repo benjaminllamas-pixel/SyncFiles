@@ -486,25 +486,134 @@ async fn copy_creates_new_file_with_content() {
 }
 
 #[actix_web::test]
-async fn diff_returns_changes_since_epoch() {
+async fn diff_returns_changes_since_cursor() {
     let state = setup().await;
     let app = make_app(state).await;
     let token = login(&app).await;
     upload(&app, &token, "diff/a.txt", "x").await;
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/sync/diff")
+    // Sesión de otro dispositivo: como un segundo cliente sincronizando
+    let token_b = {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .set_json(serde_json::json!({
+                "email": EMAIL, "password": PASSWORD, "device_id": "device-otro",
+            }))
+            .to_request();
+        let resp: Value = test::call_and_read_body_json(&app, req).await;
+        resp["session_id"].as_str().expect("session_id").to_string()
+    };
+
+    let diff_req = |since: i64, device: &str| {
+        test::TestRequest::post()
+            .uri("/api/v1/sync/diff")
+            .insert_header(("Authorization", format!("Bearer {}", token_b)))
+            .set_json(serde_json::json!({
+                "session_id": token_b,
+                "device_id": device,
+                "since": since,
+                "request_id": syncfiles_models::uuid_str(),
+            }))
+            .to_request()
+    };
+
+    // Desde 0, otro dispositivo ve el upload
+    let resp: Value = test::call_and_read_body_json(&app, diff_req(0, "device-otro")).await;
+    let changes = resp["changes"].as_array().unwrap();
+    assert!(changes.iter().any(|c| c["relative_path"] == "diff/a.txt" && c["operation"] == "upload"));
+    let server_seq = resp["server_seq"].as_i64().unwrap();
+    assert!(server_seq > 0);
+
+    // Con cursor al día: no repite entradas ya vistas
+    let resp: Value = test::call_and_read_body_json(&app, diff_req(server_seq, "device-otro")).await;
+    assert!(resp["changes"].as_array().unwrap().is_empty());
+    assert_eq!(resp["server_seq"].as_i64().unwrap(), server_seq);
+
+    // El dispositivo que originó el cambio no lo recibe de vuelta
+    let resp: Value = test::call_and_read_body_json(&app, diff_req(0, DEVICE_ID)).await;
+    assert!(resp["changes"].as_array().unwrap().is_empty());
+}
+
+#[actix_web::test]
+async fn rename_and_copy_appear_in_diff_for_other_devices() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+    upload(&app, &token, "docs/viejo.txt", "contenido").await;
+
+    let files: Value = {
+        let req = auth_get(&token, "/api/v1/files/list").to_request();
+        test::call_and_read_body_json(&app, req).await
+    };
+    let file_id = files["files"].as_array().unwrap().iter()
+        .find(|f| f["relative_path"] == "docs/viejo.txt")
+        .expect("archivo")
+        ["file_id"].as_str().unwrap().to_string();
+
+    let rename_req = test::TestRequest::post()
+        .uri("/api/v1/sync/rename")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({
             "session_id": token,
             "device_id": DEVICE_ID,
+            "file_id": file_id,
+            "old_path": "docs/viejo.txt",
+            "new_path": "docs/nuevo.txt",
+            "idempotency_key": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, rename_req).await;
+    assert_eq!(resp["status"], "ok");
+
+    let copy_req = test::TestRequest::post()
+        .uri("/api/v1/sync/copy")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": file_id,
+            "source_path": "docs/nuevo.txt",
+            "destination_path": "docs/copia.txt",
+            "idempotency_key": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, copy_req).await;
+    assert_eq!(resp["status"], "ok");
+
+    // Otro dispositivo consulta el diff y ve rename (con old_path) y copy
+    let token_b = {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .set_json(serde_json::json!({
+                "email": EMAIL, "password": PASSWORD, "device_id": "device-otro",
+            }))
+            .to_request();
+        let resp: Value = test::call_and_read_body_json(&app, req).await;
+        resp["session_id"].as_str().expect("session_id").to_string()
+    };
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/diff")
+        .insert_header(("Authorization", format!("Bearer {}", token_b)))
+        .set_json(serde_json::json!({
+            "session_id": token_b,
+            "device_id": "device-otro",
             "since": 0,
             "request_id": syncfiles_models::uuid_str(),
         }))
         .to_request();
     let resp: Value = test::call_and_read_body_json(&app, req).await;
     let changes = resp["changes"].as_array().unwrap();
-    assert!(changes.iter().any(|c| c["relative_path"] == "diff/a.txt" && c["operation"] == "upload"));
+
+    let rename = changes.iter().find(|c| c["operation"] == "rename")
+        .expect("diff incluye rename");
+    assert_eq!(rename["old_path"], "docs/viejo.txt");
+    assert_eq!(rename["relative_path"], "docs/nuevo.txt");
+    assert_eq!(rename["file_id"], file_id.as_str());
+
+    let copy = changes.iter().find(|c| c["operation"] == "copy")
+        .expect("diff incluye copy");
+    assert_eq!(copy["relative_path"], "docs/copia.txt");
+    assert_ne!(copy["file_id"].as_str().unwrap(), file_id, "copy reporta el file_id nuevo");
 }
 
 #[actix_web::test]

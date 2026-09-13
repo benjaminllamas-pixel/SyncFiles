@@ -139,11 +139,13 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Escanea la carpeta local y encola como 'pending' los archivos que:
-    /// - no existen en la BD (nuevos, p.ej. creados con el cliente apagado), o
-    /// - su checksum cambió respecto al último subido (editados en frío).
-    /// Sin esto, los archivos creados/ modificados mientras el cliente estaba
-    /// cerrado jamás se sincronizarían (el watcher solo ve cambios en caliente).
+    /// Escanea la carpeta local y:
+    /// - encola como 'pending' los archivos nuevos o con checksum cambiado;
+    /// - marca como 'deleted' las filas synced/pending cuyo archivo ya no está
+    ///   en disco (propagación de deletes hechos fuera de la UI, p.ej. Finder).
+    ///   Los archivos cuyo último segmento empieza con '.' se ignoran (scan
+    ///   no los ve; evita borrar dotfiles y descargas .conflict).
+    ///   No toca filas 'conflict' ni 'deleted'.
     async fn reconcile_local_folder(&self) {
         let mut disk_files = std::collections::HashMap::new();
         if let Err(e) = scan_files(&self.config.sync_root, &mut disk_files) {
@@ -151,19 +153,24 @@ impl SyncEngine {
             return;
         }
 
-        let known: std::collections::HashMap<String, FileEntry> = {
+        let known: Vec<FileEntry> = {
             let store = self.store.lock().unwrap();
-            match store.get_files_by_status("synced") {
-                Ok(entries) => entries.into_iter().map(|f| (f.relative_path.clone(), f)).collect(),
-                Err(e) => {
-                    warn!("Error leyendo archivos sincronizados: {}", e);
-                    return;
+            let mut acc = Vec::new();
+            for status in ["synced", "pending"] {
+                match store.get_files_by_status(status) {
+                    Ok(mut entries) => acc.append(&mut entries),
+                    Err(e) => {
+                        warn!("Error leyendo archivos sincronizados: {}", e);
+                        return;
+                    }
                 }
             }
+            acc
         };
 
         for (relative, checksum) in &disk_files {
-            match known.get(relative) {
+            let existing = known.iter().find(|f| f.relative_path == *relative);
+            match existing {
                 None => {
                     // Archivo nuevo (cliente apagado o primera ejecución)
                     let store = self.store.lock().unwrap();
@@ -185,6 +192,22 @@ impl SyncEngine {
                         info!("Cambio local detectado por escaneo: {}", relative);
                     }
                 }
+            }
+        }
+
+        // Deletes locales: filas synced/pending sin archivo en disco
+        for entry in &known {
+            if disk_files.contains_key(&entry.relative_path) {
+                continue;
+            }
+            let last_segment = entry.relative_path.rsplit('/').next().unwrap_or("");
+            if last_segment.starts_with('.') {
+                continue;
+            }
+            let store = self.store.lock().unwrap();
+            match store.update_file_status(&entry.relative_path, "deleted") {
+                Ok(_) => info!("Delete local detectado por escaneo: {}", entry.relative_path),
+                Err(e) => warn!("Error marcando delete local {}: {}", entry.relative_path, e),
             }
         }
     }
@@ -243,13 +266,14 @@ impl SyncEngine {
     }
 
     async fn apply_renaming(&self, change: &ChangeEntry) -> Result<()> {
-        // El servidor registra renames actualizando relative_path; la diff no
-        // incluye el path nuevo, así que se consulta el estado actual del archivo.
+        // Prioridad: ruta local conocida por file_id; fallback a old_path del
+        // diff (p.ej. replay tras reinstalación cuando la fila local no existe).
         let local_path_old = {
             let store = self.store.lock().unwrap();
             let existing = store.get_file_by_id(&change.file_id)?;
             existing.map(|f| f.relative_path)
-        };
+        }
+        .or_else(|| change.old_path.clone());
 
         let remote_relative = change.relative_path.clone().unwrap_or_default();
         if remote_relative.is_empty() {
@@ -280,19 +304,47 @@ impl SyncEngine {
     }
 
     async fn push_local(&self, session: &crate::metadata::Session) -> Result<()> {
+        // Deletes pendientes de propagación (detectados por reconcile o la UI)
+        let deleted = {
+            let store = self.store.lock().unwrap();
+            store.get_deleted_unsynced()?
+        };
+        for file in deleted {
+            // Si el archivo reapareció en disco, volver a pending (subirá de nuevo)
+            let local_path = self.config.sync_root.join(&file.relative_path);
+            if local_path.exists() {
+                let store = self.store.lock().unwrap();
+                let _ = store.restore_to_pending(&file.file_id);
+                info!("Archivo reapareció en disco; vuelve a pending: {}", file.relative_path);
+                continue;
+            }
+
+            match self.client.delete(&session.session_id, &file.file_id, &file.path_hash).await {
+                Ok(_) => {
+                    let store = self.store.lock().unwrap();
+                    store.mark_delete_synced(&file.file_id)?;
+                    info!("Delete propagado al server: {}", file.relative_path);
+                }
+                Err(e) => {
+                    // NOT_FOUND = ya inexistente server-side; cuenta como éxito
+                    let err_str = e.to_string();
+                    if err_str.contains("NOT_FOUND") {
+                        let store = self.store.lock().unwrap();
+                        store.mark_delete_synced(&file.file_id)?;
+                        info!("Delete ya aplicado server-side (NOT_FOUND): {}", file.relative_path);
+                    } else {
+                        warn!("Error propagando delete de {}: {}", file.relative_path, err_str);
+                    }
+                }
+            }
+        }
+
         let pending = {
             let store = self.store.lock().unwrap();
             store.get_files_by_status("pending")?
         };
 
         for file in pending {
-            if file.status == "deleted" {
-                let _ = self.client.delete(&session.session_id, &file.file_id, &file.path_hash).await;
-                let store = self.store.lock().unwrap();
-                let _ = store.update_queue_status(&file.file_id, "done", None);
-                continue;
-            }
-
             let local_path = self.config.sync_root.join(&file.relative_path);
             if !local_path.exists() {
                 warn!("Archivo no existe localmente: {:?}", local_path);
