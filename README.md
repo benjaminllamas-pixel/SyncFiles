@@ -87,6 +87,27 @@ Sistema multiplataforma de sincronización de archivos con encriptación end-to-
 ## Estado del Proyecto
 🟡 Prototipo V1 en implementación - backend, cliente y dashboard UI inicial
 
+## Instalación
+
+Manual completo en [`docs/48-documentacion-usuario.md`](docs/48-documentacion-usuario.md): servidor, dashboard web, cliente desktop, CLI, APK Android (debug y release firmado) y cliente Emacs.
+
+Comandos de compilación por componente:
+
+```bash
+cargo build --release --manifest-path syncfiles-server/Cargo.toml   # servidor + dashboard web (:8080)
+cargo build --release --manifest-path syncfiles-client/Cargo.toml   # cliente desktop
+cargo build --release --manifest-path syncfiles-cli/Cargo.toml      # cliente CLI
+cd syncfiles-android && ./gradlew assembleDebug                      # APK Android (debug)
+```
+
+El cliente Emacs no requiere compilación: carga `syncfiles-emacs/syncfiles.el`
+desde Emacs 29+ (ver `syncfiles-emacs/README.md`).
+
+```elisp
+(add-to-list 'load-path "syncfiles-emacs")
+(require 'syncfiles)   ; M-x syncfiles-login, syncfiles-upload, ...
+```
+
 ## Próximos Pasos
 1. Conectar el dashboard UI con el estado real del cliente
 2. Completar cola persistente, reintentos y conflictos
@@ -99,7 +120,7 @@ carpeta sincronizada, archivos recientes y acción de sincronización manual.
 
 ```bash
 cd syncfiles-client
-cargo run --bin syncfiles-ui
+cargo run --release --manifest-path Cargo.toml
 ```
 
 La URL del servidor y la carpeta local se pueden personalizar con `SF_SERVER_URL`

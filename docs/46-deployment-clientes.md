@@ -38,6 +38,19 @@ En V1, la distribución debe ser simple, verificable y consistente:
 - validación de versión y compatibilidad con API mínima,
 - actualización por store o canal interno según política de despliegue.
 
+### 2.5 Emacs
+
+- no hay binario que distribuir: el cliente es un único paquete Elisp
+  (`syncfiles-emacs/syncfiles.el`) que se carga con `add-to-list` +
+  `require` desde Emacs 29+,
+- sin dependencias externas (solo `url-retrieve` y `json` incluidos en
+  Emacs); instalación documentada en `syncfiles-emacs/README.md`,
+- sesión persistente en `~/.config/syncfiles/session.json` (0600) y
+  credenciales vía auth-source o prompt único,
+- limitación V1: es un cliente de operaciones ad-hoc (subir, descargar,
+  listar, borrar, resolver conflictos), no un motor de sincronización de
+  carpetas completas ni reemplazo del cliente desktop.
+
 ## 3. Requisitos mínimos
 
 - firma digital obligatoria para instalar o actualizar,
@@ -75,3 +88,30 @@ La distribución del cliente es adecuada si:
 - la versión de cliente y backend son compatibles,
 - las actualizaciones pueden revertirse si aparecen regresiones,
 - la arquitectura deja paso a nuevas plataformas sin reescribir el cliente base.
+
+## 8. Cliente Emacs: instalación y uso
+
+Instalación (desde el raíz del repo, con el servidor corriendo):
+
+```elisp
+(add-to-list 'load-path "syncfiles-emacs")
+(require 'syncfiles)
+(setq syncfiles-server-url "http://127.0.0.1:8080")
+```
+
+Comandos principales:
+
+| Comando | Acción |
+|---|---|
+| `M-x syncfiles-login` / `M-x syncfiles-logout` | gestión de sesión (persistente, auto-revalidada) |
+| `M-x syncfiles-upload` | subir archivo del buffer / dired; `C-u` para archivo arbitrario |
+| `M-x syncfiles-upload-region` | subir la región marcada |
+| `M-x syncfiles-list-files` | listado tabulado (`RET` descarga, `d` borra, `g` refresca) |
+| `M-x syncfiles-download` | descargar con verificación de checksum |
+| `M-x syncfiles-delete` | borrar remoto |
+| `M-x syncfiles-conflicts` | resolver conflictos (`l` local, `r` remoto, `p` local preservando) |
+
+Limitaciones documentadas: operaciones síncronas (bloquean Emacs durante la
+transferencia), sin motor de sincronización de carpetas, sin rename/move/copy
+remotos en V1. Validación: `syncfiles-emacs/test-e2e.el` (E2E batch contra un
+servidor real, mismo esquema que `scripts/e2e-test.sh`).
