@@ -29,3 +29,9 @@
 /syncfiles-android/.idea/
 /syncfiles-android/.kotlin/
 **/*.iml
+
+# Android release signing (never commit keystores or passwords)
+/syncfiles-android/gradle.properties.local
+/syncfiles-android/*.jks
+**/*.keystore
+**/*.jks

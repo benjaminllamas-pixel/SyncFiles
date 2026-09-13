@@ -7,6 +7,30 @@ android {
     namespace = "com.syncfiles.client.android"
     compileSdk = 34
 
+    // Firma release opcional: definir en ~/.gradle/gradle.properties o en
+    // syncfiles-android/gradle.properties.local (no versionado):
+    //   SF_KEYSTORE_FILE, SF_KEYSTORE_PASSWORD, SF_KEYSTORE_ALIAS, SF_KEY_PASSWORD
+    // Sin esas propiedades, assembleRelease genera un APK sin firmar.
+    val keystoreFile = project.findProperty("SF_KEYSTORE_FILE") as String?
+    val keystorePassword = project.findProperty("SF_KEYSTORE_PASSWORD") as String?
+    val keyAliasProp = project.findProperty("SF_KEYSTORE_ALIAS") as String?
+    val keyPasswordProp = project.findProperty("SF_KEY_PASSWORD") as String?
+    val hasSigningProps = !keystoreFile.isNullOrBlank() &&
+        !keystorePassword.isNullOrBlank() &&
+        !keyAliasProp.isNullOrBlank() &&
+        !keyPasswordProp.isNullOrBlank()
+
+    signingConfigs {
+        if (hasSigningProps) {
+            create("releaseConfig") {
+                storeFile = rootProject.file(keystoreFile!!)
+                storePassword = keystorePassword
+                keyAlias = keyAliasProp
+                keyPassword = keyPasswordProp
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.syncfiles.client.android"
         minSdk = 29
@@ -18,6 +42,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasSigningProps) {
+                signingConfig = signingConfigs.getByName("releaseConfig")
+            }
         }
     }
 
