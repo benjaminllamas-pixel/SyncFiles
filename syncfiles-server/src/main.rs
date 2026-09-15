@@ -1,36 +1,45 @@
+//! SyncFiles server — Actix-web REST API + dashboard web.
+//!
+//! Middlewares (registrados en orden):
+//! 1. `no_cache_statics` — headers no-cache para assets estáticos.
+//! 2. `trace_context` — correlation ID + logging estructurado por solicitud.
+//! 3. `content_type_middleware` — Content-Type application/json en /api/.
+//! 4. `rate_limit_middleware` — token bucket por IP (60 rps, burst 120).
+//!
+//! Health checks: GET /health/live (liveness) y /health/ready (readiness DB+storage).
+//! Migraciones: sistema versionado en `syncfiles-server/migrations/` al arrancar.
+
 use actix_files::Files;
-use actix_web::body::MessageBody;
-use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::middleware::{from_fn, Next};
+use actix_web::middleware::from_fn;
 use actix_web::web;
+use actix_web::{App, HttpServer};
 use anyhow::Result;
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-async fn no_cache_statics(
-    req: ServiceRequest,
-    next: Next<impl MessageBody>,
-) -> Result<ServiceResponse<impl MessageBody>, actix_web::Error> {
-    let path = req.path().to_owned();
-    let mut res = next.call(req).await?;
-    if !path.starts_with("/api/") {
-        res.headers_mut().insert(
-            actix_web::http::header::CACHE_CONTROL,
-            actix_web::http::header::HeaderValue::from_static("no-cache"),
-        );
-    }
-    Ok(res)
-}
+use syncfiles_server::middleware::{build_rate_limiter, no_cache_statics, content_type_middleware, rate_limit_middleware, trace_context};
+use syncfiles_server::state::AppState;
 
 #[actix_web::main]
 async fn main() -> Result<()> {
+    // Logging JSON estructurado (para correlacionar con request_id).
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout).json())
         .init();
 
     let app_config = syncfiles_server::config::Config::load()?;
-    let app_state = Arc::new(syncfiles_server::state::AppState::new(&app_config).await?);
+    let app_state = Arc::new(AppState::new(&app_config).await?);
+
+    // Ejecutar migraciones versionadas (idempotentes).
+    let migrations_dir = std::path::Path::new("./syncfiles-server/migrations");
+    if migrations_dir.is_dir() {
+        if let Err(e) = syncfiles_server::migrations::run_migrations(&app_state.pool, migrations_dir).await {
+            tracing::warn!("Migraciones fallaron (se continua con schema actual): {}", e);
+        }
+    }
+
+    let rate_limiter = build_rate_limiter();
 
     tracing::info!("Servidor SyncFiles iniciado en {}", app_config.bind_address);
 
@@ -50,18 +59,28 @@ async fn main() -> Result<()> {
         });
     tracing::info!("Sirviendo dashboard web desde {}", static_dir);
 
-    actix_web::HttpServer::new(move || {
+    let max_upload_bytes: usize = std::env::var("SF_MAX_UPLOAD_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(104_857_600); // 100 MiB
+
+    HttpServer::new(move || {
         let cors = actix_cors::Cors::permissive()
             .supports_credentials()
             .max_age(3600);
 
         let static_dir = static_dir.clone();
+        let rate_limiter = rate_limiter.clone();
 
-        actix_web::App::new()
+        App::new()
             .wrap(cors)
-            // Estáticos sin cache agresivo: el navegador debe revalidar (ETag) en cada carga
             .wrap(from_fn(no_cache_statics))
-            .app_data(actix_web::web::Data::new(app_state.clone()))
+            .wrap(from_fn(trace_context))
+            .wrap(from_fn(content_type_middleware))
+            .wrap(from_fn(rate_limit_middleware))
+            .app_data(web::Data::new(rate_limiter))
+            .app_data(web::Data::new(app_state.clone()))
+            .app_data(web::Data::new(max_upload_bytes))
             .service(
                 web::scope("/api/v1")
                     .route("/auth/login", web::post().to(syncfiles_server::handlers::login_handler))
@@ -82,7 +101,18 @@ async fn main() -> Result<()> {
                     .route("/devices/revoke", web::post().to(syncfiles_server::handlers::revoke_device_handler))
                     .route("/storage/stats", web::get().to(syncfiles_server::handlers::storage_stats_handler))
                     .route("/conflicts/resolve", web::post().to(syncfiles_server::handlers::resolve_conflict_handler))
+                    .route("/openapi", web::get().to(|| async {
+                        let content = include_str!("../docs/openapi.md");
+                        actix_web::HttpResponse::Ok()
+                            .content_type("text/markdown; charset=utf-8")
+                            .body(content)
+                    }))
                     .default_service(web::route().to(syncfiles_server::handlers::not_found))
+            )
+            .service(
+                web::scope("/health")
+                    .service(syncfiles_server::health::liveness)
+                    .service(syncfiles_server::health::readiness)
             )
             .service(web::redirect("/ui", "/"))
             .service(

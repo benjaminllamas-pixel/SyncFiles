@@ -563,24 +563,310 @@ impl SyncEngine {
 /// Ignora archivos ocultos y de metadatos (`.DS_Store`, `.conflict_*` no: los
 /// conflictos preservados SÍ se sincronizan como archivos normales).
 fn scan_files(root: &std::path::Path, out: &mut std::collections::HashMap<String, String>) -> anyhow::Result<()> {
-    for entry in std::fs::read_dir(root)? {
+    scan_files_rel(root, "", out)
+}
+
+/// Recursión interna: acumula el prefijo relativo para que las claves de
+/// subdirectorios incluyan su carpeta (`sub/b.txt`, no `b.txt`).
+fn scan_files_rel(
+    dir: &std::path::Path,
+    prefix: &str,
+    out: &mut std::collections::HashMap<String, String>,
+) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.starts_with('.') {
             continue;
         }
+        let relative = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", prefix, name)
+        };
         if path.is_dir() {
-            scan_files(&path, out)?;
+            scan_files_rel(&path, &relative, out)?;
         } else if path.is_file() {
-            let relative = path
-                .strip_prefix(root)?
-                .to_str()
-                .unwrap_or_default()
-                .to_string();
             let checksum = crate::metadata::MetadataStore::hash_file_at(&path).unwrap_or_default();
             out.insert(relative, checksum);
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metadata::MetadataStore;
+    use syncfiles_models::compute_checksum;
+
+    fn tmp_dir(name: &str) -> std::path::PathBuf {
+        let tmp = std::env::temp_dir().join(format!("sf-sync-test-{}-{}", name, std::process::id()));
+        std::fs::remove_dir_all(&tmp).ok();
+        std::fs::create_dir_all(&tmp).unwrap();
+        tmp
+    }
+
+    fn test_config(root: &std::path::Path) -> Config {
+        Config {
+            server_url: "http://127.0.0.1:8080".into(),
+            email: "test@syncfiles.local".into(),
+            password: "secret".into(),
+            device_id: "device-test".into(),
+            sync_root: root.to_path_buf(),
+            polling_interval_secs: 30,
+        }
+    }
+
+    fn engine_with(root: &std::path::Path) -> (SyncEngine, std::path::PathBuf) {
+        let config = test_config(root);
+        let client = Arc::new(SyncClient::new("http://127.0.0.1:1", "device-test").unwrap());
+        let db_path = root.join(".sf-test").join("syncfiles.db");
+        let store = MetadataStore::with_path(config.clone(), &db_path).unwrap();
+        let engine = SyncEngine::new(config, client, Arc::new(Mutex::new(store)));
+        (engine, root.to_path_buf())
+    }
+
+    #[test]
+    fn scan_files_maps_relative_paths_and_checksums() {
+        let tmp = tmp_dir(&format!("scan-{}", uuid::Uuid::new_v4()));
+        std::fs::write(tmp.join("a.txt"), b"uno").unwrap();
+        std::fs::create_dir(tmp.join("sub")).unwrap();
+        std::fs::write(tmp.join("sub").join("b.txt"), b"dos").unwrap();
+        std::fs::write(tmp.join(".hidden"), b"ignorame").unwrap();
+
+        let mut out = std::collections::HashMap::new();
+        scan_files(&tmp, &mut out).unwrap();
+        assert_eq!(out.len(), 2, "los dotfiles se ignoran: {:?}", out.keys());
+        assert_eq!(out.get("a.txt").unwrap(), &compute_checksum(b"uno"));
+        let sub_key = out.keys().find(|k| k.ends_with("b.txt")).expect("b.txt escaneado");
+        assert_eq!(out.get(sub_key).unwrap(), &compute_checksum(b"dos"));
+        assert!(sub_key.contains("sub"));
+        std::fs::remove_dir_all(tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn reconcile_detects_new_modified_and_deleted() {
+        let tmp = tmp_dir("reconcile");
+        std::fs::write(tmp.join("nuevo.txt"), b"contenido nuevo").unwrap();
+        std::fs::write(tmp.join("cambiado.txt"), b"v2").unwrap();
+        std::fs::write(tmp.join("borrado.txt"), b"chau").unwrap();
+
+        let (engine, _) = engine_with(&tmp);
+        // Estado inicial: 'cambiado.txt' synced con checksum viejo,
+        // 'borrado.txt' synced (después lo eliminamos del disco).
+        {
+            let store = engine.store.lock().unwrap();
+            store.upsert_file(&FileEntry {
+                file_id: "f-cambiado".into(),
+                user_id: "u".into(),
+                device_id: "device-test".into(),
+                relative_path: "cambiado.txt".into(),
+                path_hash: syncfiles_models::compute_path_hash("cambiado.txt"),
+                checksum: compute_checksum(b"v1"),
+                size_bytes: 2,
+                modified_at: 1,
+                synced_at: Some(1),
+                status: "synced".into(),
+                last_sync_version: 0,
+                deleted_at: None,
+                content: None,
+            }).unwrap();
+            store.upsert_file(&FileEntry {
+                file_id: "f-borrado".into(),
+                user_id: "u".into(),
+                device_id: "device-test".into(),
+                relative_path: "borrado.txt".into(),
+                path_hash: syncfiles_models::compute_path_hash("borrado.txt"),
+                checksum: compute_checksum(b"chau"),
+                size_bytes: 4,
+                modified_at: 1,
+                synced_at: Some(1),
+                status: "synced".into(),
+                last_sync_version: 0,
+                deleted_at: None,
+                content: None,
+            }).unwrap();
+        }
+
+        // Borrar del disco ANTES del reconcile → debe detectarse como delete local
+        std::fs::remove_file(tmp.join("borrado.txt")).unwrap();
+
+        engine.reconcile_local_folder().await;
+
+        {
+            let store = engine.store.lock().unwrap();
+            // Nuevo archivo detectado → pending
+            let nuevo = store.get_file_by_relative_path("nuevo.txt").unwrap().unwrap();
+            assert_eq!(nuevo.status, "pending");
+            // Checksum cambió → vuelve a pending
+            let cambiado = store.get_file_by_relative_path("cambiado.txt").unwrap().unwrap();
+            assert_eq!(cambiado.status, "pending");
+            // Archivo desaparecido → deleted
+            let borrado = store.get_file_by_relative_path("borrado.txt").unwrap().unwrap();
+            assert_eq!(borrado.status, "deleted");
+            // Dotfiles no se marcan deleted aunque no estén en el scan
+        }
+        std::fs::remove_dir_all(tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn reconcile_ignores_dotfiles_for_deletes() {
+        let tmp = tmp_dir("reconcile-dots");
+        let (engine, _) = engine_with(&tmp);
+        {
+            let store = engine.store.lock().unwrap();
+            store.upsert_file(&FileEntry {
+                file_id: "f-conf".into(),
+                user_id: "u".into(),
+                device_id: "device-test".into(),
+                relative_path: ".conflict_preservado.txt".into(),
+                path_hash: syncfiles_models::compute_path_hash(".conflict_preservado.txt"),
+                checksum: compute_checksum(b"x"),
+                size_bytes: 1,
+                modified_at: 1,
+                synced_at: Some(1),
+                status: "synced".into(),
+                last_sync_version: 0,
+                deleted_at: None,
+                content: None,
+            }).unwrap();
+        }
+        // El archivo existe pero empieza con '.' → el scan no lo ve y NO debe marcarse deleted
+        std::fs::write(tmp.join(".conflict_preservado.txt"), b"x").unwrap();
+        engine.reconcile_local_folder().await;
+        {
+            let store = engine.store.lock().unwrap();
+            let entry = store.get_file_by_relative_path(".conflict_preservado.txt").unwrap().unwrap();
+            assert_eq!(entry.status, "synced");
+        }
+        std::fs::remove_dir_all(tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn apply_renaming_uses_old_path_fallback() {
+        let tmp = tmp_dir(&format!("rename-fallback-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(tmp.join("docs")).unwrap();
+        std::fs::write(tmp.join("docs").join("viejo.txt"), b"contenido").unwrap();
+        let (engine, _) = engine_with(&tmp);
+
+        // Sin fila local (replay tras reinstalación): old_path del diff es el fallback
+        let change = ChangeEntry {
+            operation: "rename".into(),
+            file_id: "f-rename".into(),
+            path_hash: syncfiles_models::compute_path_hash("docs/nuevo.txt"),
+            relative_path: Some("docs/nuevo.txt".into()),
+            old_path: Some("docs/viejo.txt".into()),
+            checksum: compute_checksum(b"contenido"),
+            size_bytes: Some(8),
+            modified_at: 1,
+            device_id: "otro-device".into(),
+            content: None,
+        };
+        engine.apply_renaming(&change).await.unwrap();
+
+        // El archivo físico se movió usando old_path (no había fila local)
+        assert!(!tmp.join("docs").join("viejo.txt").exists());
+        assert!(tmp.join("docs").join("nuevo.txt").exists());
+
+        // Con fila local existente: la ruta se actualiza en la DB
+        {
+            let store = engine.store.lock().unwrap();
+            store.upsert_file(&FileEntry {
+                file_id: "f-rename-2".into(),
+                user_id: "u".into(),
+                device_id: "otro-device".into(),
+                relative_path: "docs/viejo2.txt".into(),
+                path_hash: syncfiles_models::compute_path_hash("docs/viejo2.txt"),
+                checksum: compute_checksum(b"contenido"),
+                size_bytes: 8,
+                modified_at: 1,
+                synced_at: Some(1),
+                status: "synced".into(),
+                last_sync_version: 0,
+                deleted_at: None,
+                content: None,
+            }).unwrap();
+        }
+        std::fs::write(tmp.join("docs").join("viejo2.txt"), b"contenido").unwrap();
+        let change2 = ChangeEntry {
+            operation: "rename".into(),
+            file_id: "f-rename-2".into(),
+            path_hash: syncfiles_models::compute_path_hash("docs/nuevo2.txt"),
+            relative_path: Some("docs/nuevo2.txt".into()),
+            old_path: Some("docs/viejo2.txt".into()),
+            checksum: compute_checksum(b"contenido"),
+            size_bytes: Some(8),
+            modified_at: 1,
+            device_id: "otro-device".into(),
+            content: None,
+        };
+        engine.apply_renaming(&change2).await.unwrap();
+        assert!(tmp.join("docs").join("nuevo2.txt").exists());
+        let renamed = {
+            let store = engine.store.lock().unwrap();
+            store.get_file_by_id("f-rename-2").unwrap().unwrap()
+        };
+        assert_eq!(renamed.relative_path, "docs/nuevo2.txt");
+        std::fs::remove_dir_all(tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn apply_download_writes_file_and_upserts_metadata() {
+        let tmp = tmp_dir("apply-download");
+        let (engine, _) = engine_with(&tmp);
+        let content_b64 = base64::engine::general_purpose::STANDARD.encode(b"contenido bajo");
+        let change = ChangeEntry {
+            operation: "upload".into(),
+            file_id: "f-dl".into(),
+            path_hash: syncfiles_models::compute_path_hash("carpeta/descargado.txt"),
+            relative_path: Some("carpeta/descargado.txt".into()),
+            old_path: None,
+            checksum: compute_checksum(b"contenido bajo"),
+            size_bytes: Some(13),
+            modified_at: 1,
+            device_id: "otro-device".into(),
+            content: Some(content_b64),
+        };
+        engine.apply_download(&change, change.content.as_deref().unwrap()).await.unwrap();
+
+        let written = std::fs::read(tmp.join("carpeta").join("descargado.txt")).unwrap();
+        assert_eq!(written, b"contenido bajo");
+        let entry = {
+            let store = engine.store.lock().unwrap();
+            store.get_file_by_id("f-dl").unwrap().unwrap()
+        };
+        assert_eq!(entry.status, "synced");
+        assert_eq!(entry.checksum, compute_checksum(b"contenido bajo"));
+        std::fs::remove_dir_all(tmp).ok();
+    }
+
+    #[tokio::test]
+    async fn apply_delete_removes_local_file() {
+        let tmp = tmp_dir("apply-delete");
+        std::fs::write(tmp.join("muere.txt"), b"x").unwrap();
+        let (engine, _) = engine_with(&tmp);
+        let change = ChangeEntry {
+            operation: "delete".into(),
+            file_id: "f-del".into(),
+            path_hash: syncfiles_models::compute_path_hash("muere.txt"),
+            relative_path: Some("muere.txt".into()),
+            old_path: None,
+            checksum: compute_checksum(b"x"),
+            size_bytes: Some(1),
+            modified_at: 1,
+            device_id: "otro-device".into(),
+            content: None,
+        };
+        engine.apply_delete(&change).await.unwrap();
+        assert!(!tmp.join("muere.txt").exists());
+        let entry = {
+            let store = engine.store.lock().unwrap();
+            store.get_file_by_id("f-del").unwrap().unwrap()
+        };
+        assert_eq!(entry.status, "deleted");
+        assert!(entry.deleted_at.is_some());
+        std::fs::remove_dir_all(tmp).ok();
+    }
 }

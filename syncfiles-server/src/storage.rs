@@ -24,6 +24,10 @@ pub trait StorageProvider: Send + Sync {
 }
 
 pub fn normalize_relative_path(path: &str) -> Result<String> {
+    // Paths absolutas o con separador inicial no son rutas relativas válidas
+    if path.starts_with('/') || path.starts_with("\\\\") {
+        return Err(StorageError::InvalidPath);
+    }
     let path = path.replace('\\', "/");
     let parts: Vec<&str> = path.split('/').collect();
     let mut normalized = Vec::new();

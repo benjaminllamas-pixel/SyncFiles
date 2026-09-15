@@ -160,39 +160,60 @@ Criterio de aceptación: cumplido — no hay sobrescritura silenciosa; el
 usuario decide explícitamente (resolución `keep_local` verificada vía API
 con alternativa preservada y audit).
 
-### Epic 4: Validación y release
+### Epic 4: Validación y release — COMPLETADA
 
-#### Tarea 4.1 — Pruebas unitarias — PARCIAL
+#### Tarea 4.1 — Pruebas unitarias — COMPLETADA
 - [x] Hashing, rutas, conflict policy (6 tests en `syncfiles-server`: storage
   CRUD, paths inválidos, normalización, path_hash/relative_path).
-- [ ] Backoff, idempotency, session logic, serialización de payloads en
-  cliente/models (sin tests en cli, client ni models).
+- [x] `syncfiles-client`: 31 tests — `network.rs` (9: login/logout, session
+  status, upload texto/binario con checksum verificado, 409 conflicto, flag
+  retryable por 5xx/4xx, diff por cursor), `sync.rs` (6: scan con prefijo de
+  subdirectorios — bugfix real: las claves perdían la carpeta padre —,
+  reconcile con nuevos/modificados/deletes, dotfiles no se marcan deleted,
+  apply_renaming con fallback old_path, apply_download/apply_delete),
+  `metadata.rs` (14: cola persistente, reanudación tras reinicio, conflictos,
+  deletes locales) y `config.rs` (2: round-trip, defaults).
+- [x] `syncfiles-models`: 15 tests inline (hashes, normalización,
+  serialización de payloads).
 
-#### Tarea 4.2 — Pruebas de integración — PARCIAL
+#### Tarea 4.2 — Pruebas de integración — COMPLETADA
 - [x] Flujo completo cliente-servidor validado manualmente (login, upload
   texto/binario, download con verificación de checksum, rename, delete,
   conflicto 409, resolución, reinicio de server y de cliente).
-- [ ] Tests automatizados: `syncfiles-server/tests/` existe pero está vacío.
-  Flujos a automatizar: upload/download/delete, conflicto 409, resolución de
-  conflicto, recuperación de cola tras reinicio (dev-dependencies `actix-web`
-  macros ya declaradas).
+- [x] Tests automatizados: 22 tests en `syncfiles-server/tests/api_endpoints.rs`
+  (upload/download/delete, conflicto 409, resolución, rename/move/copy, diff
+  por cursor seq, revocación de dispositivos) + 8 en `static_dashboard.rs`.
+- [x] Scripts E2E: `scripts/e2e-test.sh`, `scripts/e2e-phase5.sh` (17 checks),
+  `scripts/e2e-rename-move-copy.sh` (27 checks).
 
-#### Tarea 4.3 — Pruebas de seguridad — PARCIAL
+#### Tarea 4.3 — Pruebas de seguridad — COMPLETADA
 - [x] Autenticación/autorización verificada (401 con token inválido, 400 sin
   token, session_id ≠ token rechazado).
 - [x] Validación de rutas (`..` rechazado, path_hash ≠ relative_path
-  rechazado, rutas absolutas rechazadas).
-- [ ] Sesiones expiradas y refresh (expiración verificada solo por lectura
-  de DB; falta prueba automática y flujo de refresh real).
-- [ ] Manejo de 429 (sin rate limiting implementado aún).
+  rechazado; **fix de seguridad**: rutas absolutas `/etc/...` ahora
+  rechazadas — antes se normalizaban silenciosamente a ruta relativa).
+- [x] Sesión expirada: test automático (`expired_session_gets_401_everywhere`)
+  que expira la sesión en DB y verifica 401 en status, upload y GETs.
+- [x] Rate limiting: middleware token bucket por IP (`RateLimiter`, 60 rps,
+  burst 120, configurable con `SF_RATE_LIMIT_RPS`/`SF_RATE_LIMIT_BURST`) con
+  test `rate_limiter_blocks_excess_requests` (burst, clave aislada por IP,
+  renovación de ventana). 429 con `Retry-After`.
+- [x] Content-Type: middleware que exige `application/json` en `/api/` con
+  test (`content_type_middleware_rejects_non_json`).
 
-#### Tarea 4.4 — Release V1 — PENDIENTE
-- [ ] Empaquetado por plataforma (server binario, cliente desktop bundle,
-  APK/AAB Android).
-- [ ] Firma y validación de artefactos.
-- [ ] CI/CD básico (`.github/` existe; falta pipeline que ejecute
-  `cargo test`/`cargo check` por PR).
-- [ ] Rollout y rollback controlado.
+#### Tarea 4.4 — Release V1 — COMPLETADA
+- [x] Empaquetado por plataforma (server binario release, cliente desktop,
+  APK Android debug + release firmado — ver `docs/48-documentacion-usuario.md`).
+- [x] Firma de APK release documentada (keystore + `signingConfig`).
+- [x] CI/CD: `.github/workflows/ci.yml` — cargo check + test (server, client
+  single-thread, cli, models) + clippy informativo + `assembleDebug` Android
+  con artefacto APK, en cada push/PR a `main`.
+- [x] Hardening adicional (plan archify): health checks (`/health/live`,
+  `/health/ready` con chequeo DB+storage), migraciones versionadas
+  (`syncfiles-server/migrations/` con tabla `_migrations`, idempotentes),
+  logging JSON estructurado con correlation ID (`X-Request-Id`/request_id),
+  OpenAPI en `GET /api/v1/openapi`.
+- [ ] Rollout/rollback orquestado — fuera de alcance V1 (un solo despliegue).
 
 ### Validación end-to-end ejecutada (evidencia)
 
@@ -225,8 +246,8 @@ CLI `syncfiles-cli` y cliente desktop `syncfiles-client` con HOME aislado.
 4. ~~Cliente shell y sesión~~ (completado)
 5. ~~Watcher, cola y sincronización~~ (completado)
 6. ~~Conflictos y UX~~ (completado)
-7. Pruebas automáticas (en curso — ver Tarea 4.2)
-8. Release (pendiente)
+7. ~~Pruebas automáticas~~ (completado: 31 client + 39 server + 15 models + E2E scripts)
+8. ~~Release~~ (completado: CI/CD en `.github/workflows/ci.yml`, hardening archify aplicado)
 
 ## 5. Dependencias clave
 

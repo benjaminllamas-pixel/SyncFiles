@@ -78,3 +78,85 @@ impl Config {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn isolated_data_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sf-config-test-{}-{}", name, std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    struct EnvGuard(std::sync::Mutex<Vec<&'static str>>);
+    impl EnvGuard {
+        #[allow(dead_code)]
+        fn set(keys: Vec<&'static str>) -> Self {
+            for k in &keys {
+                unsafe { std::env::set_var(k, "") };
+            }
+            EnvGuard(std::sync::Mutex::new(keys))
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            let keys = self.0.lock().unwrap().clone();
+            for k in &keys {
+                unsafe { std::env::remove_var(k) };
+            }
+        }
+    }
+
+    #[test]
+    fn config_save_load_roundtrip() {
+        let dir = isolated_data_dir("roundtrip");
+        unsafe { std::env::set_var("SF_DATA_DIR", &dir) };
+        let cfg = Config {
+            server_url: "http://example.com:9000".into(),
+            email: "user@example.com".into(),
+            password: "secreto".into(),
+            device_id: "dev-42".into(),
+            sync_root: dir.join("sync"),
+            polling_interval_secs: 15,
+        };
+        cfg.save().unwrap();
+
+        // load() lee del config.json persistido (ignora env defaults)
+        let loaded = Config::load().unwrap();
+        assert_eq!(loaded.server_url, cfg.server_url);
+        assert_eq!(loaded.email, cfg.email);
+        assert_eq!(loaded.password, cfg.password);
+        assert_eq!(loaded.device_id, cfg.device_id);
+        assert_eq!(loaded.polling_interval_secs, 15);
+        assert_eq!(loaded.sync_root, dir.join("sync"));
+
+        // data_dir respeta SF_DATA_DIR
+        assert_eq!(Config::data_dir(), dir);
+        assert!(Config::config_path().starts_with(&dir));
+        unsafe { std::env::remove_var("SF_DATA_DIR") };
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn config_load_defaults_when_no_file() {
+        let dir = isolated_data_dir("defaults");
+        unsafe { std::env::set_var("SF_DATA_DIR", &dir) };
+        unsafe { std::env::remove_var("SF_CONFIG_EXISTS_MARKER") };
+        // Sin config.json: usa defaults de env
+        unsafe { std::env::set_var("SF_SERVER_URL", "http://default-url:1234") };
+        unsafe { std::env::set_var("SF_POLLING_INTERVAL", "7") };
+        let cfg = Config::load().unwrap();
+        assert_eq!(cfg.server_url, "http://default-url:1234");
+        assert_eq!(cfg.polling_interval_secs, 7);
+        assert!(!cfg.device_id.is_empty());
+        assert!(cfg.device_id.starts_with("desktop-"));
+
+        unsafe { std::env::remove_var("SF_SERVER_URL") };
+        unsafe { std::env::remove_var("SF_POLLING_INTERVAL") };
+        unsafe { std::env::remove_var("SF_DATA_DIR") };
+        std::fs::remove_dir_all(dir).ok();
+    }
+}

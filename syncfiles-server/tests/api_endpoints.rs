@@ -719,3 +719,210 @@ async fn revoke_rejects_own_device_and_unknown_device() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], "NOT_FOUND");
 }
+
+// ===== Tests de seguridad (hardening V1, plan 1789441050663) =====
+
+/// Expira una sesión directamente en la DB (simula el paso del TTL de 24h).
+async fn expire_session(state: &Arc<AppState>, token: &str) {
+    sqlx::query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?")
+        .bind(syncfiles_models::now_ms() - 1)
+        .bind(token)
+        .execute(&state.pool)
+        .await
+        .expect("expirar sesión");
+}
+
+#[actix_web::test]
+async fn expired_session_gets_401_everywhere() {
+    let state = setup().await;
+    let app = make_app(state.clone()).await;
+    let token = login(&app).await;
+
+    // Antes de expirar: la sesión es válida
+    let req = auth_get(&token, "/api/v1/session/status").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    expire_session(&state, &token).await;
+
+    // session/status → 401
+    let req = auth_get(&token, "/api/v1/session/status").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401, "status con sesión expirada");
+
+    // Mutaciones con sesión expirada → 401
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/upload")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": "",
+            "relative_path": "a.txt",
+            "path_hash": syncfiles_models::compute_path_hash("a.txt"),
+            "checksum": syncfiles_models::compute_checksum(b"x"),
+            "size_bytes": 1,
+            "modified_at": syncfiles_models::now_ms(),
+            "idempotency_key": syncfiles_models::uuid_str(),
+            "content": base64::engine::general_purpose::STANDARD.encode(b"x"),
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401, "upload con sesión expirada");
+
+    // GET protegidos → 401
+    for uri in ["/api/v1/files/list", "/api/v1/conflicts", "/api/v1/devices"] {
+        let req = auth_get(&token, uri).to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401, "GET {} con sesión expirada", uri);
+    }
+}
+
+#[actix_web::test]
+async fn upload_rejects_invalid_path_hash() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+
+    // path_hash ≠ SHA-256 de relative_path → 400 INVALID_PATH_HASH
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/upload")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": "",
+            "relative_path": "docs/a.txt",
+            "path_hash": "hash-falso-que-no-corresponde",
+            "checksum": syncfiles_models::compute_checksum(b"hola"),
+            "size_bytes": 4,
+            "modified_at": syncfiles_models::now_ms(),
+            "idempotency_key": syncfiles_models::uuid_str(),
+            "content": base64::engine::general_purpose::STANDARD.encode(b"hola"),
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"], "INVALID_PATH_HASH",
+        "debe rechazar path_hash incoherente: {body}"
+    );
+}
+
+#[actix_web::test]
+async fn upload_rejects_traversal_and_absolute_paths() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+
+    // `..` que escapa de la raíz del usuario → 400
+    let evil = "../../etc/passwd";
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/upload")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": "",
+            "relative_path": evil,
+            "path_hash": syncfiles_models::compute_path_hash(evil),
+            "checksum": syncfiles_models::compute_checksum(b"mal"),
+            "size_bytes": 3,
+            "modified_at": syncfiles_models::now_ms(),
+            "idempotency_key": syncfiles_models::uuid_str(),
+            "content": base64::engine::general_purpose::STANDARD.encode(b"mal"),
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400, "path traversal debe rechazarse");
+
+    // Path absoluta → 400
+    let abs = "/etc/passwd";
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/upload")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": "",
+            "relative_path": abs,
+            "path_hash": syncfiles_models::compute_path_hash(abs.trim_start_matches('/')),
+            "checksum": syncfiles_models::compute_checksum(b"mal"),
+            "size_bytes": 3,
+            "modified_at": syncfiles_models::now_ms(),
+            "idempotency_key": syncfiles_models::uuid_str(),
+            "content": base64::engine::general_purpose::STANDARD.encode(b"mal"),
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400, "path absoluta debe rechazarse");
+
+    // Verificación: ningún archivo salió del storage root del usuario
+    let listing: Value = {
+        let req = auth_get(&token, "/api/v1/files/list").to_request();
+        test::call_and_read_body_json(&app, req).await
+    };
+    for f in listing["files"].as_array().unwrap() {
+        let path = f["relative_path"].as_str().unwrap_or("");
+        assert!(!path.contains(".."), "ningún path con .. en el listado: {path}");
+    }
+}
+
+#[actix_web::test]
+async fn rate_limiter_blocks_excess_requests() {
+    use std::time::Duration;
+
+    // Token bucket directo: rps=2, burst=3 (sin HTTP, unit test del limiter)
+    let limiter = syncfiles_server::middleware::RateLimiter::new(2, 3);
+    let key = "1.2.3.4:9999";
+    // Las primeras 3 (burst) pasan
+    assert!(limiter.allow(key), "burst 1");
+    assert!(limiter.allow(key), "burst 2");
+    assert!(limiter.allow(key), "burst 3");
+    // La 4ª excede el burst → bloqueada
+    assert!(!limiter.allow(key), "excede burst");
+
+    // Otra IP no se ve afectada
+    assert!(limiter.allow("5.6.7.8:1234"), "clave distinta no se afecta");
+
+    // Tras 1s la ventana se renueva (tokens se recargan)
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    assert!(limiter.allow(key), "ventana renovada tras 1s");
+}
+
+#[actix_web::test]
+async fn content_type_middleware_rejects_non_json() {
+    // El middleware exige application/json en /api/ con body
+    use actix_web::middleware::from_fn;
+    use syncfiles_server::middleware::content_type_middleware;
+
+    let state = setup().await;
+    let app = test::init_service(
+        App::new()
+            .wrap(from_fn(content_type_middleware))
+            .app_data(web::Data::new(state))
+            .route("/api/v1/ping", web::post().to(|| async { "pong" })),
+    )
+    .await;
+
+    // Content-Type text/plain → 415
+    let req = test::TestRequest::post()
+        .uri("/api/v1/ping")
+        .insert_header(("Content-Type", "text/plain"))
+        .set_payload("hola")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 415);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "INVALID_CONTENT_TYPE");
+
+    // Content-Type application/json → pasa
+    let req = test::TestRequest::post()
+        .uri("/api/v1/ping")
+        .insert_header(("Content-Type", "application/json"))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+}

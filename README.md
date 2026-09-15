@@ -4,7 +4,7 @@
 Sistema multiplataforma de sincronización de archivos con encriptación end-to-end prevista para fases posteriores y respaldo con soporte futuro en servidor NAS.
 
 ## Fase Actual
-**Fase de Diseño y Arquitectura** - Documentación de requerimientos, arquitectura y especificaciones técnicas.
+**V1 — Prototipo funcional** (sincronización operativa) + hardening completado: tests automatizados (server, client, models), CI/CD (GitHub Actions), health checks, rate limiting, migraciones versionadas y validación E2E.
 
 ## Estructura de Documentación
 
@@ -85,7 +85,25 @@ Sistema multiplataforma de sincronización de archivos con encriptación end-to-
 - `50-funcionalidades-futuras.md` - Features planificadas para versiones posteriores
 
 ## Estado del Proyecto
-🟡 Prototipo V1 en implementación - backend, cliente y dashboard UI inicial
+🟢 V1 funcional — server + cliente desktop + CLI + Android + web + Emacs, con CI y suite de tests
+
+## Tests y CI
+
+```bash
+cargo test --manifest-path syncfiles-models/Cargo.toml
+cargo test --manifest-path syncfiles-server/Cargo.toml
+cargo test --manifest-path syncfiles-client/Cargo.toml -- --test-threads=1
+bash scripts/e2e-test.sh              # regresión E2E completa
+bash scripts/e2e-phase5.sh             # escenarios fase 5
+bash scripts/e2e-rename-move-copy.sh   # rename/move/copy (27 checks)
+```
+
+CI en `.github/workflows/ci.yml`: check + test (server/client/cli/models) + clippy en cada push/PR a `main`, más `assembleDebug` Android con artefacto APK.
+
+## Próximos Pasos
+1. V2: encriptación end-to-end, soporte NAS, PostgreSQL, Kafka (ver `docs/49-roadmap.md`)
+2. Limpiar deuda de clippy (hoy informativo en CI)
+3. Load testing y containerización (Docker)
 
 ## Instalación
 
@@ -107,11 +125,6 @@ desde Emacs 29+ (ver `syncfiles-emacs/README.md`).
 (add-to-list 'load-path "syncfiles-emacs")
 (require 'syncfiles)   ; M-x syncfiles-login, syncfiles-upload, ...
 ```
-
-## Próximos Pasos
-1. Conectar el dashboard UI con el estado real del cliente
-2. Completar cola persistente, reintentos y conflictos
-3. Añadir pruebas de integración cliente-servidor
 
 ## Dashboard UI
 

@@ -1,0 +1,2280 @@
+{
+  "version": "1.0",
+  "tool": "archify",
+  "timestamp": "2026-09-14T03:45:23.571Z",
+  "report": {
+    "version": "1.0",
+    "reportId": "R-mu0oukc3-ywoq",
+    "timestamp": "2026-09-14T03:33:37.011Z",
+    "projectName": "SyncFiles Project",
+    "overallScore": 54,
+    "overallGrade": "D+",
+    "categories": [
+      {
+        "name": "Performance & Scale",
+        "score": 58,
+        "grade": "C-",
+        "applicableCount": 8,
+        "totalCount": 9,
+        "attributes": [
+          {
+            "name": "Scalability",
+            "category": "Performance & Scale",
+            "score": 70,
+            "grade": "B-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The microservices architecture allows for horizontal scaling, but there is no evidence of externalized session management or auto-scaling policies.",
+            "checkedItems": [
+              "Microservices architecture allows for horizontal scaling",
+              "Stateless service design observed"
+            ],
+            "gaps": [
+              "No externalized session management",
+              "Lack of auto-scaling policies"
+            ],
+            "recommendations": [
+              "Implement external session storage",
+              "Define auto-scaling policies based on load metrics"
+            ]
+          },
+          {
+            "name": "Performance",
+            "category": "Performance & Scale",
+            "score": 65,
+            "grade": "C+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project shows potential with its use of async I/O in some areas, but there are concerns about N+1 query patterns and missing database indexes.",
+            "checkedItems": [
+              "Async I/O in request paths",
+              "Use of Rust for performance-critical components"
+            ],
+            "gaps": [
+              "Potential N+1 query patterns",
+              "Missing database indexes on queried columns"
+            ],
+            "recommendations": [
+              "Profile database queries to identify N+1 patterns",
+              "Add indexes on frequently queried columns"
+            ]
+          },
+          {
+            "name": "Throughput",
+            "category": "Performance & Scale",
+            "score": 60,
+            "grade": "C",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "While the project has a structure that could support high throughput, there is no evidence of load testing configurations or backpressure mechanisms.",
+            "checkedItems": [
+              "Microservices can handle multiple requests",
+              "Asynchronous processing in some components"
+            ],
+            "gaps": [
+              "No load testing configuration",
+              "Lack of backpressure mechanisms"
+            ],
+            "recommendations": [
+              "Create load testing configurations",
+              "Implement backpressure mechanisms for overload handling"
+            ]
+          },
+          {
+            "name": "Latency",
+            "category": "Performance & Scale",
+            "score": 55,
+            "grade": "C-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project lacks latency monitoring and cold start mitigation strategies, which are essential for maintaining low response times.",
+            "checkedItems": [
+              "Async I/O in request paths",
+              "Potential for low latency with microservices"
+            ],
+            "gaps": [
+              "No latency percentile monitoring",
+              "No cold start mitigation strategies"
+            ],
+            "recommendations": [
+              "Implement latency monitoring with alerts",
+              "Consider pre-warming strategies for serverless components"
+            ]
+          },
+          {
+            "name": "Elasticity",
+            "category": "Performance & Scale",
+            "score": 0,
+            "grade": "N/A",
+            "confidence": "low",
+            "applicable": false,
+            "reasoning": "Not applicable to this project type.",
+            "checkedItems": [],
+            "gaps": [],
+            "recommendations": []
+          },
+          {
+            "name": "Capacity",
+            "category": "Performance & Scale",
+            "score": 50,
+            "grade": "D+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "There is no evidence of resource limits set on containers or processes, which could lead to capacity issues under load.",
+            "checkedItems": [
+              "Basic resource allocation observed",
+              "Some monitoring in place"
+            ],
+            "gaps": [
+              "No resource limits set on containers",
+              "Lack of memory leak detection"
+            ],
+            "recommendations": [
+              "Set resource requests and limits on all workloads",
+              "Implement memory leak detection mechanisms"
+            ]
+          },
+          {
+            "name": "Concurrency",
+            "category": "Performance & Scale",
+            "score": 75,
+            "grade": "B",
+            "confidence": "high",
+            "applicable": true,
+            "reasoning": "The project demonstrates good concurrency handling with the use of async programming and mutexes, but there may be areas for improvement in shared state access.",
+            "checkedItems": [
+              "Use of async programming in Rust",
+              "Mutex usage for shared state"
+            ],
+            "gaps": [
+              "Potential race conditions in shared state access",
+              "No lock-free data structures observed"
+            ],
+            "recommendations": [
+              "Review shared state access patterns for race conditions",
+              "Consider using lock-free data structures where applicable"
+            ]
+          },
+          {
+            "name": "Cacheability",
+            "category": "Performance & Scale",
+            "score": 40,
+            "grade": "D",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks a comprehensive caching strategy, which is critical for improving performance and reducing latency.",
+            "checkedItems": [
+              "No caching mechanisms observed",
+              "Static assets served without caching"
+            ],
+            "gaps": [
+              "No HTTP cache headers",
+              "No application-level caching"
+            ],
+            "recommendations": [
+              "Implement HTTP cache headers",
+              "Consider using Redis or Memcached for application-level caching"
+            ]
+          },
+          {
+            "name": "Predictability",
+            "category": "Performance & Scale",
+            "score": 45,
+            "grade": "D",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project lacks consistent response time monitoring and may experience variability under load due to garbage collection pauses.",
+            "checkedItems": [
+              "Basic logging in place",
+              "Some performance monitoring observed"
+            ],
+            "gaps": [
+              "No consistent response time tracking",
+              "Potential GC pauses affecting latency"
+            ],
+            "recommendations": [
+              "Implement consistent response time monitoring",
+              "Tune garbage collection settings for better predictability"
+            ]
+          }
+        ],
+        "topFindings": [
+          {
+            "id": "F-mu0ot5r8-001",
+            "severity": "warning",
+            "status": "open",
+            "category": "Performance & Scale",
+            "title": "Missing Load Testing Configuration",
+            "description": "The project lacks a load testing configuration, which is essential for validating performance under expected traffic.",
+            "affectedFiles": [
+              "syncfiles-server/src/main.rs"
+            ],
+            "recommendation": "Create and integrate load testing configurations into the CI pipeline.",
+            "effort": "medium",
+            "businessImpact": "Without load testing, the application may not perform well under real-world conditions, leading to potential downtime."
+          },
+          {
+            "id": "F-mu0ot5r8-002",
+            "severity": "warning",
+            "status": "open",
+            "category": "Performance & Scale",
+            "title": "Lack of Caching Strategy",
+            "description": "There is no caching strategy implemented, which can lead to increased latency and reduced performance.",
+            "affectedFiles": [
+              "syncfiles-server/src/lib.rs"
+            ],
+            "recommendation": "Implement caching mechanisms at both the application and HTTP levels.",
+            "effort": "high",
+            "businessImpact": "Increased latency can lead to poor user experience and higher operational costs."
+          },
+          {
+            "id": "F-mu0ot5r8-003",
+            "severity": "info",
+            "status": "open",
+            "category": "Performance & Scale",
+            "title": "Potential N+1 Query Patterns",
+            "description": "The project may have N+1 query patterns that could degrade performance.",
+            "affectedFiles": [
+              "syncfiles-server/src/db.rs"
+            ],
+            "recommendation": "Profile database queries to identify and optimize N+1 patterns.",
+            "effort": "medium",
+            "businessImpact": "Optimizing queries can significantly improve response times and reduce database load."
+          }
+        ],
+        "summary": "The SyncFiles Project demonstrates a solid foundation with its microservices architecture and use of design patterns, which support scalability and concurrency. However, it lacks comprehensive caching strategies and load testing configurations that are critical for high-performance applications."
+      },
+      {
+        "name": "Reliability & Resilience",
+        "score": 43,
+        "grade": "D",
+        "applicableCount": 9,
+        "totalCount": 10,
+        "attributes": [
+          {
+            "name": "Reliability",
+            "category": "Reliability & Resilience",
+            "score": 70,
+            "grade": "B-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project has structured error handling and logging, but lacks automated health checks and error classification.",
+            "checkedItems": [
+              "Structured error handling in server code",
+              "Logging implemented in multiple modules"
+            ],
+            "gaps": [
+              "No automated health checks",
+              "Lack of error classification"
+            ],
+            "recommendations": [
+              "Implement health check endpoints",
+              "Classify errors as transient or permanent"
+            ]
+          },
+          {
+            "name": "Availability",
+            "category": "Reliability & Resilience",
+            "score": 50,
+            "grade": "D+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "Basic availability measures are present, but there are no documented uptime targets or redundancy mechanisms.",
+            "checkedItems": [
+              "Single instance deployment noted",
+              "Basic logging for server startup"
+            ],
+            "gaps": [
+              "No documented uptime targets",
+              "No multi-AZ or multi-region deployment"
+            ],
+            "recommendations": [
+              "Define uptime SLOs",
+              "Consider multi-region deployment for redundancy"
+            ]
+          },
+          {
+            "name": "Resilience",
+            "category": "Reliability & Resilience",
+            "score": 40,
+            "grade": "D",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks circuit breaker patterns and fallback mechanisms, increasing the risk of cascading failures.",
+            "checkedItems": [
+              "No circuit breaker patterns found",
+              "No fallback responses for degraded dependencies"
+            ],
+            "gaps": [
+              "Single dependency chain without fallback",
+              "No timeout configurations on external calls"
+            ],
+            "recommendations": [
+              "Implement circuit breaker patterns",
+              "Add timeout configurations for external calls"
+            ]
+          },
+          {
+            "name": "Fault Tolerance",
+            "category": "Reliability & Resilience",
+            "score": 30,
+            "grade": "D-",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "There are no retry mechanisms or dead letter queues, which are essential for fault tolerance.",
+            "checkedItems": [
+              "No retry logic found",
+              "No dead letter queue implementation"
+            ],
+            "gaps": [
+              "Unbounded retries without backoff",
+              "Missing timeout policies"
+            ],
+            "recommendations": [
+              "Implement exponential backoff for retries",
+              "Introduce dead letter queues for message processing"
+            ]
+          },
+          {
+            "name": "Recoverability",
+            "category": "Reliability & Resilience",
+            "score": 20,
+            "grade": "F",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks automated rollback mechanisms and documentation for incident response.",
+            "checkedItems": [
+              "No automated rollback on deployment failure",
+              "No runbooks for common failure scenarios"
+            ],
+            "gaps": [
+              "Manual recovery procedures only",
+              "No documentation for incident response"
+            ],
+            "recommendations": [
+              "Create runbooks for incident response",
+              "Implement automated rollback mechanisms"
+            ]
+          },
+          {
+            "name": "Durability",
+            "category": "Reliability & Resilience",
+            "score": 60,
+            "grade": "C",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "Data persistence mechanisms are present, but there is no verification of backups.",
+            "checkedItems": [
+              "Data models include persistence attributes",
+              "Use of serialization for data storage"
+            ],
+            "gaps": [
+              "No backup verification process",
+              "No replication configuration noted"
+            ],
+            "recommendations": [
+              "Implement regular backup verification",
+              "Consider multi-replica data storage"
+            ]
+          },
+          {
+            "name": "Consistency",
+            "category": "Reliability & Resilience",
+            "score": 50,
+            "grade": "D+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project has basic data models but lacks a documented consistency model.",
+            "checkedItems": [
+              "Data models defined in syncfiles-models/src/lib.rs",
+              "Serialization and deserialization implemented"
+            ],
+            "gaps": [
+              "No documented consistency model",
+              "Missing transaction boundaries"
+            ],
+            "recommendations": [
+              "Define a consistency model for data storage",
+              "Implement transaction boundaries where necessary"
+            ]
+          },
+          {
+            "name": "Graceful Degradation",
+            "category": "Reliability & Resilience",
+            "score": 30,
+            "grade": "D-",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project does not support graceful degradation, risking complete failure when dependencies are down.",
+            "checkedItems": [
+              "No feature flags for toggling features",
+              "No partial response support found"
+            ],
+            "gaps": [
+              "All-or-nothing failure risk",
+              "No fallback UI for degraded states"
+            ],
+            "recommendations": [
+              "Implement feature flags for non-critical features",
+              "Design fallback responses for degraded states"
+            ]
+          },
+          {
+            "name": "Idempotency",
+            "category": "Reliability & Resilience",
+            "score": 40,
+            "grade": "D",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "Some idempotent operations are present, but not consistently applied across all endpoints.",
+            "checkedItems": [
+              "Idempotent operations in some API endpoints",
+              "Use of unique identifiers in data models"
+            ],
+            "gaps": [
+              "No idempotency keys on critical mutations",
+              "Risk of duplicate processing in message consumers"
+            ],
+            "recommendations": [
+              "Implement idempotency keys on all mutating endpoints",
+              "Ensure deduplication in message consumers"
+            ]
+          },
+          {
+            "name": "Redundancy",
+            "category": "Reliability & Resilience",
+            "score": 0,
+            "grade": "N/A",
+            "confidence": "low",
+            "applicable": false,
+            "reasoning": "Not applicable for this project type.",
+            "checkedItems": [],
+            "gaps": [],
+            "recommendations": []
+          }
+        ],
+        "topFindings": [
+          {
+            "id": "F-mu0otd56-004",
+            "severity": "critical",
+            "status": "open",
+            "category": "Reliability & Resilience",
+            "title": "Lack of Health Checks",
+            "description": "The project does not implement health check endpoints, risking undetected service failures.",
+            "affectedFiles": [
+              "syncfiles-server/src/main.rs"
+            ],
+            "recommendation": "Implement liveness and readiness health check endpoints.",
+            "effort": "medium",
+            "businessImpact": "Without health checks, service failures may go unnoticed, impacting user experience."
+          },
+          {
+            "id": "F-mu0otd56-005",
+            "severity": "warning",
+            "status": "open",
+            "category": "Reliability & Resilience",
+            "title": "Missing Circuit Breakers",
+            "description": "The absence of circuit breaker patterns increases the risk of cascading failures.",
+            "affectedFiles": [
+              "syncfiles-client/src/network.rs"
+            ],
+            "recommendation": "Introduce circuit breaker patterns for external service calls.",
+            "effort": "high",
+            "businessImpact": "Cascading failures can lead to complete service outages."
+          },
+          {
+            "id": "F-mu0otd56-006",
+            "severity": "warning",
+            "status": "open",
+            "category": "Reliability & Resilience",
+            "title": "No Automated Rollback Mechanism",
+            "description": "The project lacks an automated rollback mechanism for failed deployments.",
+            "affectedFiles": [
+              "syncfiles-server/src/main.rs"
+            ],
+            "recommendation": "Implement automated rollback on deployment failure.",
+            "effort": "medium",
+            "businessImpact": "Manual recovery procedures can lead to prolonged downtime."
+          }
+        ],
+        "summary": "The SyncFiles Project demonstrates a solid foundation in reliability with structured error handling and logging. However, it lacks automated health checks and circuit breaker patterns, which are critical for resilience."
+      },
+      {
+        "name": "Security & Compliance",
+        "score": 35,
+        "grade": "D-",
+        "applicableCount": 10,
+        "totalCount": 10,
+        "attributes": [
+          {
+            "name": "Security",
+            "category": "Security & Compliance",
+            "score": 65,
+            "grade": "C+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project shows some input validation and structured error handling, but lacks comprehensive measures like rate limiting and dependency vulnerability scanning.",
+            "checkedItems": [
+              "Uses structured error handling",
+              "Implements some input validation"
+            ],
+            "gaps": [
+              "No rate limiting on API endpoints",
+              "No dependency vulnerability scanning"
+            ],
+            "recommendations": [
+              "Implement rate limiting on API endpoints",
+              "Integrate dependency scanning tools in CI pipeline"
+            ]
+          },
+          {
+            "name": "Confidentiality",
+            "category": "Security & Compliance",
+            "score": 50,
+            "grade": "D+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "While there are some measures for data protection, such as password hashing, the project lacks encryption for sensitive data at rest and in transit.",
+            "checkedItems": [
+              "Uses password hashing for user credentials"
+            ],
+            "gaps": [
+              "No encryption for sensitive data at rest",
+              "No TLS for API communications"
+            ],
+            "recommendations": [
+              "Implement AES-256 encryption for sensitive data",
+              "Ensure all API communications use TLS 1.2 or higher"
+            ]
+          },
+          {
+            "name": "Integrity",
+            "category": "Security & Compliance",
+            "score": 40,
+            "grade": "D",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project does not appear to implement checksums or hash verification for file transfers, which is critical for maintaining data integrity.",
+            "checkedItems": [],
+            "gaps": [
+              "No checksum verification for file transfers",
+              "No database constraints for data integrity"
+            ],
+            "recommendations": [
+              "Implement checksum verification for file uploads and downloads",
+              "Add database constraints to enforce data integrity"
+            ]
+          },
+          {
+            "name": "Authenticity",
+            "category": "Security & Compliance",
+            "score": 30,
+            "grade": "D-",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "There is no evidence of multi-factor authentication or secure token validation mechanisms, which are essential for ensuring authenticity.",
+            "checkedItems": [],
+            "gaps": [
+              "No multi-factor authentication",
+              "No secure token validation"
+            ],
+            "recommendations": [
+              "Implement multi-factor authentication for user accounts",
+              "Use secure token validation methods for API access"
+            ]
+          },
+          {
+            "name": "Compliance",
+            "category": "Security & Compliance",
+            "score": 20,
+            "grade": "F",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks documentation for regulatory compliance and does not appear to implement data retention policies.",
+            "checkedItems": [],
+            "gaps": [
+              "No documented regulatory requirements",
+              "No data retention or deletion policies"
+            ],
+            "recommendations": [
+              "Document regulatory requirements and compliance measures",
+              "Establish data retention and deletion policies"
+            ]
+          },
+          {
+            "name": "Auditability",
+            "category": "Security & Compliance",
+            "score": 45,
+            "grade": "D",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "There is some logging in place, but it lacks structure and does not cover all sensitive operations.",
+            "checkedItems": [
+              "Some logging implemented for operations"
+            ],
+            "gaps": [
+              "No structured audit logs",
+              "Missing logging for sensitive operations"
+            ],
+            "recommendations": [
+              "Implement structured audit logging for all sensitive operations",
+              "Ensure logs include correlation IDs"
+            ]
+          },
+          {
+            "name": "Governance",
+            "category": "Security & Compliance",
+            "score": 25,
+            "grade": "F",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "There is no evidence of security policies defined in code or access control documentation.",
+            "checkedItems": [],
+            "gaps": [
+              "No access control policy documentation",
+              "No branch protection or required reviews"
+            ],
+            "recommendations": [
+              "Establish access control policies and document them",
+              "Implement branch protection rules in version control"
+            ]
+          },
+          {
+            "name": "Non-repudiation",
+            "category": "Security & Compliance",
+            "score": 20,
+            "grade": "F",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks mechanisms for ensuring non-repudiation, such as digital signatures or immutable logs.",
+            "checkedItems": [],
+            "gaps": [
+              "No digital signatures on transactions",
+              "No immutable audit logs"
+            ],
+            "recommendations": [
+              "Implement digital signatures for critical transactions",
+              "Create immutable audit logs for sensitive operations"
+            ]
+          },
+          {
+            "name": "Authorization",
+            "category": "Security & Compliance",
+            "score": 35,
+            "grade": "D-",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project does not implement fine-grained access control, which is necessary for enforcing the least privilege principle.",
+            "checkedItems": [],
+            "gaps": [
+              "No role-based access control",
+              "No resource-level permissions"
+            ],
+            "recommendations": [
+              "Implement role-based access control (RBAC)",
+              "Add resource-level permissions for sensitive data"
+            ]
+          },
+          {
+            "name": "Privacy",
+            "category": "Security & Compliance",
+            "score": 15,
+            "grade": "F",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "There is no evidence of PII detection or consent management, which are critical for compliance with privacy regulations.",
+            "checkedItems": [],
+            "gaps": [
+              "No PII detection or classification",
+              "No consent management system"
+            ],
+            "recommendations": [
+              "Implement PII detection and classification",
+              "Establish a consent management system for user data"
+            ]
+          }
+        ],
+        "topFindings": [
+          {
+            "id": "F-mu0otl3k-007",
+            "severity": "critical",
+            "status": "open",
+            "category": "Security & Compliance",
+            "title": "Lack of Input Validation",
+            "description": "The project does not validate user input on API endpoints, creating potential injection vulnerabilities.",
+            "affectedFiles": [
+              "syncfiles-server/src/handlers.rs"
+            ],
+            "recommendation": "Implement input validation for all user-supplied data in API endpoints.",
+            "effort": "medium",
+            "businessImpact": "This could lead to data breaches or unauthorized access to sensitive information."
+          },
+          {
+            "id": "F-mu0otl3k-008",
+            "severity": "warning",
+            "status": "open",
+            "category": "Security & Compliance",
+            "title": "Missing Encryption for Sensitive Data",
+            "description": "Sensitive data is not encrypted at rest, increasing the risk of data exposure.",
+            "affectedFiles": [
+              "syncfiles-server/src/storage.rs"
+            ],
+            "recommendation": "Implement AES-256 encryption for sensitive data stored in the database.",
+            "effort": "high",
+            "businessImpact": "Failure to protect sensitive data could lead to compliance violations and reputational damage."
+          },
+          {
+            "id": "F-mu0otl3k-009",
+            "severity": "warning",
+            "status": "open",
+            "category": "Security & Compliance",
+            "title": "No Rate Limiting on API Endpoints",
+            "description": "API endpoints lack rate limiting, making them vulnerable to abuse and denial-of-service attacks.",
+            "affectedFiles": [
+              "syncfiles-server/src/main.rs"
+            ],
+            "recommendation": "Implement rate limiting on all API endpoints to mitigate abuse.",
+            "effort": "medium",
+            "businessImpact": "This could lead to service outages and degraded performance for legitimate users."
+          }
+        ],
+        "summary": "The SyncFiles Project demonstrates a solid foundation in security practices, particularly in user authentication and data handling. However, there are significant gaps in dependency management and input validation that need to be addressed."
+      },
+      {
+        "name": "Maintainability & Operations",
+        "score": 49,
+        "grade": "D",
+        "applicableCount": 8,
+        "totalCount": 8,
+        "attributes": [
+          {
+            "name": "Maintainability",
+            "category": "Maintainability & Operations",
+            "score": 70,
+            "grade": "B-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project has a modular structure and uses design patterns, but some files may exceed ideal size limits and naming conventions are not consistently enforced.",
+            "checkedItems": [
+              "Uses Factory and Singleton design patterns",
+              "Modular structure with separate client, server, and models",
+              "Average file size is manageable"
+            ],
+            "gaps": [
+              "Some files may exceed 300 LOC",
+              "Inconsistent naming conventions across modules"
+            ],
+            "recommendations": [
+              "Implement linting rules to enforce naming conventions",
+              "Refactor larger files to adhere to single responsibility principle"
+            ]
+          },
+          {
+            "name": "Operability",
+            "category": "Maintainability & Operations",
+            "score": 50,
+            "grade": "D+",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "There is no evidence of runbooks or operational dashboards, which are critical for effective operations.",
+            "checkedItems": [
+              "Basic command-line interface for operations",
+              "Separation of client and server components"
+            ],
+            "gaps": [
+              "No runbooks for operational tasks",
+              "Lack of operational dashboards"
+            ],
+            "recommendations": [
+              "Create runbooks for common operational tasks",
+              "Implement operational dashboards to monitor system health"
+            ]
+          },
+          {
+            "name": "Debuggability",
+            "category": "Maintainability & Operations",
+            "score": 60,
+            "grade": "C",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project uses structured logging but lacks correlation IDs and may have unstructured log messages.",
+            "checkedItems": [
+              "Uses structured logging in some components",
+              "Error handling is present in API endpoints"
+            ],
+            "gaps": [
+              "No correlation IDs in logs",
+              "Some unstructured log messages"
+            ],
+            "recommendations": [
+              "Implement correlation IDs for tracing requests",
+              "Standardize log message formats across the project"
+            ]
+          },
+          {
+            "name": "Supportability",
+            "category": "Maintainability & Operations",
+            "score": 40,
+            "grade": "D",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks documented error codes and diagnostic endpoints, which are essential for support.",
+            "checkedItems": [
+              "Some error handling in API responses",
+              "Basic error messages in the CLI"
+            ],
+            "gaps": [
+              "No documented error codes",
+              "Lack of diagnostic endpoints"
+            ],
+            "recommendations": [
+              "Create an error code catalog with meanings and remediation steps",
+              "Implement health and diagnostic endpoints"
+            ]
+          },
+          {
+            "name": "Testability",
+            "category": "Maintainability & Operations",
+            "score": 65,
+            "grade": "C+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project has some tests, but coverage metrics and test isolation practices are not clearly defined.",
+            "checkedItems": [
+              "Includes tests for API endpoints",
+              "Modular architecture supports testability"
+            ],
+            "gaps": [
+              "No clear test coverage metrics",
+              "Potential shared state between tests"
+            ],
+            "recommendations": [
+              "Establish test coverage metrics and goals",
+              "Ensure test isolation by avoiding shared mutable state"
+            ]
+          },
+          {
+            "name": "Deployability",
+            "category": "Maintainability & Operations",
+            "score": 30,
+            "grade": "D-",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks an automated deployment pipeline and relies on manual steps, which can lead to downtime.",
+            "checkedItems": [
+              "Basic deployment scripts present",
+              "Separation of client and server components"
+            ],
+            "gaps": [
+              "No automated deployment pipeline",
+              "Manual deployment steps required"
+            ],
+            "recommendations": [
+              "Implement an automated CI/CD pipeline for deployments",
+              "Adopt a zero-downtime deployment strategy"
+            ]
+          },
+          {
+            "name": "Observability",
+            "category": "Maintainability & Operations",
+            "score": 45,
+            "grade": "D",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks distributed tracing and comprehensive metrics collection, which are vital for observability.",
+            "checkedItems": [
+              "Some logging implemented",
+              "Basic error handling in API responses"
+            ],
+            "gaps": [
+              "No distributed tracing across services",
+              "Limited metrics collection"
+            ],
+            "recommendations": [
+              "Implement distributed tracing using OpenTelemetry",
+              "Set up metrics collection for application performance"
+            ]
+          },
+          {
+            "name": "Monitoring",
+            "category": "Maintainability & Operations",
+            "score": 35,
+            "grade": "D-",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "There is no alerting system in place, which is critical for proactive monitoring.",
+            "checkedItems": [
+              "Basic logging implemented",
+              "Separation of client and server components"
+            ],
+            "gaps": [
+              "No alerting mechanisms",
+              "Lack of dashboards for system health"
+            ],
+            "recommendations": [
+              "Establish an alerting system with severity levels",
+              "Create dashboards for monitoring system health"
+            ]
+          }
+        ],
+        "topFindings": [
+          {
+            "id": "F-mu0otsfc-00a",
+            "severity": "critical",
+            "status": "open",
+            "category": "Maintainability & Operations",
+            "title": "Lack of Operational Documentation",
+            "description": "The project lacks runbooks and operational documentation, making it difficult for new team members to understand operational tasks.",
+            "affectedFiles": [],
+            "recommendation": "Create comprehensive runbooks for common operational tasks and link them from alerting systems.",
+            "effort": "medium",
+            "businessImpact": "This can lead to increased onboarding time and operational errors."
+          },
+          {
+            "id": "F-mu0otsfc-00b",
+            "severity": "warning",
+            "status": "open",
+            "category": "Maintainability & Operations",
+            "title": "Manual Deployment Process",
+            "description": "The deployment process is manual and lacks automation, which can lead to downtime during updates.",
+            "affectedFiles": [
+              "scripts/e2e-test.sh"
+            ],
+            "recommendation": "Implement an automated CI/CD pipeline to streamline deployments.",
+            "effort": "high",
+            "businessImpact": "Manual deployments increase the risk of errors and downtime."
+          },
+          {
+            "id": "F-mu0otsfc-00c",
+            "severity": "info",
+            "status": "open",
+            "category": "Maintainability & Operations",
+            "title": "Inconsistent Logging Practices",
+            "description": "Logging is not standardized across the project, leading to difficulties in debugging.",
+            "affectedFiles": [
+              "syncfiles-server/src/main.rs"
+            ],
+            "recommendation": "Standardize logging formats and implement correlation IDs.",
+            "effort": "medium",
+            "businessImpact": "Inconsistent logging can hinder troubleshooting and increase resolution times."
+          }
+        ],
+        "summary": "The SyncFiles Project demonstrates a solid structure with clear separation of concerns and some design patterns in use. However, it lacks standardized dependency management and comprehensive operational documentation."
+      },
+      {
+        "name": "User Experience",
+        "score": 62,
+        "grade": "C",
+        "applicableCount": 3,
+        "totalCount": 5,
+        "attributes": [
+          {
+            "name": "Usability",
+            "category": "User Experience",
+            "score": 75,
+            "grade": "B",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project has a clear structure and error handling, but lacks consistent navigation patterns across the UI.",
+            "checkedItems": [
+              "Clear error messages in API responses",
+              "Command-line interface for user interaction",
+              "Use of design patterns like Factory and Singleton"
+            ],
+            "gaps": [
+              "Inconsistent UI patterns across different modules",
+              "No loading indicators for async operations"
+            ],
+            "recommendations": [
+              "Implement a consistent design system for UI components",
+              "Add loading states to improve user feedback during operations"
+            ]
+          },
+          {
+            "name": "Accessibility",
+            "category": "User Experience",
+            "score": 60,
+            "grade": "C",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "Some ARIA roles are likely present, but there is no evidence of comprehensive accessibility testing.",
+            "checkedItems": [
+              "Basic structure for keyboard navigation",
+              "Potential use of ARIA roles in UI components"
+            ],
+            "gaps": [
+              "Missing alt text on images",
+              "No evidence of screen reader compatibility testing"
+            ],
+            "recommendations": [
+              "Conduct accessibility audits using automated tools",
+              "Ensure all images have appropriate alt text"
+            ]
+          },
+          {
+            "name": "Responsiveness",
+            "category": "User Experience",
+            "score": 0,
+            "grade": "N/A",
+            "confidence": "low",
+            "applicable": false,
+            "reasoning": "The project does not include mobile responsiveness as it primarily focuses on a command-line interface and desktop application.",
+            "checkedItems": [],
+            "gaps": [],
+            "recommendations": []
+          },
+          {
+            "name": "Learnability",
+            "category": "User Experience",
+            "score": 50,
+            "grade": "D+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project lacks a formal onboarding process, which could help new users understand the application better.",
+            "checkedItems": [
+              "Command-line interface provides basic command help",
+              "Consistent naming conventions in code"
+            ],
+            "gaps": [
+              "No onboarding flow for new users",
+              "Lack of tooltips or contextual help"
+            ],
+            "recommendations": [
+              "Develop an onboarding guide or tutorial for new users",
+              "Add tooltips for key features in the UI"
+            ]
+          },
+          {
+            "name": "Internationalization",
+            "category": "User Experience",
+            "score": 0,
+            "grade": "N/A",
+            "confidence": "low",
+            "applicable": false,
+            "reasoning": "Internationalization is not applicable as the project does not focus on multi-language support.",
+            "checkedItems": [],
+            "gaps": [],
+            "recommendations": []
+          }
+        ],
+        "topFindings": [
+          {
+            "id": "F-mu0otwj8-00d",
+            "severity": "warning",
+            "status": "open",
+            "category": "User Experience",
+            "title": "Inconsistent UI Patterns",
+            "description": "The application exhibits inconsistent navigation and UI patterns across different modules.",
+            "affectedFiles": [
+              "syncfiles-client/src/main.rs",
+              "syncfiles-server/src/main.rs"
+            ],
+            "recommendation": "Establish a design system to ensure consistent UI components and navigation patterns.",
+            "effort": "medium",
+            "businessImpact": "Inconsistent UI can lead to user confusion and decreased satisfaction."
+          },
+          {
+            "id": "F-mu0otwj8-00e",
+            "severity": "info",
+            "status": "open",
+            "category": "User Experience",
+            "title": "Lack of Accessibility Features",
+            "description": "The project lacks comprehensive accessibility features, which may hinder usability for users with disabilities.",
+            "affectedFiles": [
+              "syncfiles-server/static/app.js"
+            ],
+            "recommendation": "Implement ARIA roles and conduct accessibility testing to ensure compliance.",
+            "effort": "high",
+            "businessImpact": "Improving accessibility can broaden the user base and enhance user experience."
+          }
+        ],
+        "summary": "The SyncFiles Project demonstrates a solid foundation in usability and accessibility, with a focus on clear error handling and a command-line interface. However, improvements are needed in consistent UI patterns and comprehensive accessibility features."
+      },
+      {
+        "name": "Integration & Portability",
+        "score": 54,
+        "grade": "D+",
+        "applicableCount": 6,
+        "totalCount": 7,
+        "attributes": [
+          {
+            "name": "Interoperability",
+            "category": "Integration & Portability",
+            "score": 70,
+            "grade": "B-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project uses standard protocols and has a microservices architecture, but lacks documented API contracts.",
+            "checkedItems": [
+              "Uses REST for API communication",
+              "Microservices architecture allows for modular integration",
+              "Command-line interface for diverse user interaction"
+            ],
+            "gaps": [
+              "No OpenAPI or JSON Schema documentation",
+              "Lack of webhook support for event-driven integration"
+            ],
+            "recommendations": [
+              "Implement OpenAPI specifications for API endpoints",
+              "Add webhook support for better event handling"
+            ]
+          },
+          {
+            "name": "Portability",
+            "category": "Integration & Portability",
+            "score": 60,
+            "grade": "C",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project shows some cross-platform support but lacks containerization and environment abstraction.",
+            "checkedItems": [
+              "Microservices can be deployed independently",
+              "No hardcoded paths in the CLI"
+            ],
+            "gaps": [
+              "No Docker support for containerized deployment",
+              "Environment variables not fully utilized for configuration"
+            ],
+            "recommendations": [
+              "Introduce Docker for containerized deployment",
+              "Use environment variables for all configurable settings"
+            ]
+          },
+          {
+            "name": "Extensibility",
+            "category": "Integration & Portability",
+            "score": 50,
+            "grade": "D+",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks a clear plugin or extension architecture, limiting its ability to adapt to new features.",
+            "checkedItems": [
+              "Uses design patterns like Factory and Singleton",
+              "Modular structure allows for some level of extension"
+            ],
+            "gaps": [
+              "No documented extension points",
+              "No middleware or hooks for customization"
+            ],
+            "recommendations": [
+              "Develop a plugin system with clear documentation",
+              "Implement middleware for request/response customization"
+            ]
+          },
+          {
+            "name": "Reconfigurability",
+            "category": "Integration & Portability",
+            "score": 40,
+            "grade": "D",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "Configuration management is present but not fully externalized, leading to potential issues in different environments.",
+            "checkedItems": [
+              "Some configuration values are set via environment variables",
+              "Basic runtime behavior changes possible"
+            ],
+            "gaps": [
+              "Hardcoded configuration in some files",
+              "No feature flags for runtime toggles"
+            ],
+            "recommendations": [
+              "Externalize all configuration settings",
+              "Implement a feature flag system for runtime toggles"
+            ]
+          },
+          {
+            "name": "Modularity",
+            "category": "Integration & Portability",
+            "score": 75,
+            "grade": "B",
+            "confidence": "high",
+            "applicable": true,
+            "reasoning": "The project has clear module boundaries and uses dependency inversion, promoting good modularity.",
+            "checkedItems": [
+              "Separate modules for client, server, and models",
+              "Minimal cross-module imports"
+            ],
+            "gaps": [
+              "Some modules could benefit from clearer public APIs"
+            ],
+            "recommendations": [
+              "Define explicit public API surfaces for each module"
+            ]
+          },
+          {
+            "name": "API Compatibility",
+            "category": "Integration & Portability",
+            "score": 30,
+            "grade": "D-",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks versioning and a clear deprecation policy for its APIs, which could lead to compatibility issues.",
+            "checkedItems": [
+              "APIs are accessible but not versioned",
+              "No documented deprecation policy"
+            ],
+            "gaps": [
+              "No versioning strategy for API endpoints",
+              "Breaking changes could occur without notice"
+            ],
+            "recommendations": [
+              "Implement versioning for API endpoints",
+              "Establish a deprecation policy with migration guides"
+            ]
+          },
+          {
+            "name": "Backward Compatibility",
+            "category": "Integration & Portability",
+            "score": 0,
+            "grade": "N/A",
+            "confidence": "low",
+            "applicable": false,
+            "reasoning": "Not applicable for this project type.",
+            "checkedItems": [],
+            "gaps": [],
+            "recommendations": []
+          }
+        ],
+        "topFindings": [
+          {
+            "id": "F-mu0ou1r8-00f",
+            "severity": "warning",
+            "status": "open",
+            "category": "Integration & Portability",
+            "title": "Lack of API Documentation",
+            "description": "The project does not provide OpenAPI or JSON Schema documentation for its APIs.",
+            "affectedFiles": [
+              "syncfiles-server/src/main.rs"
+            ],
+            "recommendation": "Generate OpenAPI specifications from the codebase to improve API documentation.",
+            "effort": "medium",
+            "businessImpact": "Without proper documentation, integration with other services may be challenging."
+          },
+          {
+            "id": "F-mu0ou1r8-00g",
+            "severity": "warning",
+            "status": "open",
+            "category": "Integration & Portability",
+            "title": "No Containerization",
+            "description": "The project lacks Docker support for containerized deployment.",
+            "affectedFiles": [],
+            "recommendation": "Introduce Docker to facilitate easier deployment across different environments.",
+            "effort": "high",
+            "businessImpact": "Without containerization, deployment may be inconsistent across environments."
+          }
+        ],
+        "summary": "The SyncFiles Project demonstrates good interoperability with a microservices architecture and a command-line interface. However, it lacks standardized dependency management and comprehensive API documentation, which could hinder portability and extensibility."
+      },
+      {
+        "name": "Efficiency",
+        "score": 60,
+        "grade": "C",
+        "applicableCount": 5,
+        "totalCount": 5,
+        "attributes": [
+          {
+            "name": "Cost Efficiency",
+            "category": "Efficiency",
+            "score": 60,
+            "grade": "C",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project lacks clear evidence of cost monitoring and right-sizing of compute resources, which could lead to over-provisioning.",
+            "checkedItems": [
+              "No cost monitoring or budget alerts",
+              "No evidence of auto-scaling configurations"
+            ],
+            "gaps": [
+              "Lack of FinOps dashboards",
+              "No use of spot instances for fault-tolerant workloads"
+            ],
+            "recommendations": [
+              "Implement cost monitoring tools",
+              "Explore auto-scaling options for microservices"
+            ]
+          },
+          {
+            "name": "Resource Efficiency",
+            "category": "Efficiency",
+            "score": 70,
+            "grade": "B-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project shows some optimization in memory usage and CPU efficiency, but lacks connection pooling and garbage collection tuning.",
+            "checkedItems": [
+              "Uses efficient data structures",
+              "No memory leaks detected"
+            ],
+            "gaps": [
+              "No connection pooling implemented",
+              "Garbage collection tuning not observed"
+            ],
+            "recommendations": [
+              "Implement connection pooling for network requests",
+              "Review garbage collection settings for performance"
+            ]
+          },
+          {
+            "name": "Energy Efficiency",
+            "category": "Efficiency",
+            "score": 50,
+            "grade": "D+",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project does not utilize event-driven architecture or efficient algorithms, which could improve energy consumption.",
+            "checkedItems": [
+              "No evidence of event-driven architecture",
+              "Polling observed in some areas"
+            ],
+            "gaps": [
+              "High-frequency polling for data updates",
+              "No compression for network transfers"
+            ],
+            "recommendations": [
+              "Adopt event-driven patterns where applicable",
+              "Implement data compression for network payloads"
+            ]
+          },
+          {
+            "name": "Conciseness",
+            "category": "Efficiency",
+            "score": 65,
+            "grade": "C+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project adheres to the DRY principle in many areas, but there are instances of potential code duplication.",
+            "checkedItems": [
+              "Uses design patterns like Factory and Singleton",
+              "Some shared utilities observed"
+            ],
+            "gaps": [
+              "Potential copy-paste code duplication",
+              "Unused exports in some modules"
+            ],
+            "recommendations": [
+              "Conduct a code audit to eliminate dead code",
+              "Encourage the use of shared utilities"
+            ]
+          },
+          {
+            "name": "Reusability",
+            "category": "Efficiency",
+            "score": 55,
+            "grade": "C-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project has some reusable components, but lacks a comprehensive shared library or design system.",
+            "checkedItems": [
+              "Some utility functions present",
+              "Modular design observed"
+            ],
+            "gaps": [
+              "No shared component library",
+              "No design tokens for consistent styling"
+            ],
+            "recommendations": [
+              "Develop a shared component library",
+              "Introduce design tokens for styling consistency"
+            ]
+          }
+        ],
+        "topFindings": [
+          {
+            "id": "F-mu0ou70r-00h",
+            "severity": "warning",
+            "status": "open",
+            "category": "Efficiency",
+            "title": "Lack of Cost Monitoring",
+            "description": "The project does not implement any cost monitoring or budget alerts, which could lead to unexpected expenses.",
+            "affectedFiles": [
+              "syncfiles-server/src/main.rs"
+            ],
+            "recommendation": "Integrate cost monitoring tools to track resource usage and expenses.",
+            "effort": "medium",
+            "businessImpact": "Without cost monitoring, the project risks overspending on cloud resources."
+          },
+          {
+            "id": "F-mu0ou70r-00i",
+            "severity": "warning",
+            "status": "open",
+            "category": "Efficiency",
+            "title": "No Connection Pooling",
+            "description": "The project does not utilize connection pooling, which can lead to increased resource overhead.",
+            "affectedFiles": [
+              "syncfiles-client/src/network.rs"
+            ],
+            "recommendation": "Implement connection pooling to optimize resource usage.",
+            "effort": "medium",
+            "businessImpact": "Inefficient resource usage can lead to higher operational costs and slower performance."
+          },
+          {
+            "id": "F-mu0ou70r-00j",
+            "severity": "info",
+            "status": "open",
+            "category": "Efficiency",
+            "title": "Potential Code Duplication",
+            "description": "There are instances of potential code duplication across modules.",
+            "affectedFiles": [
+              "syncfiles-client/src/main.rs",
+              "syncfiles-server/src/main.rs"
+            ],
+            "recommendation": "Conduct a code review to identify and eliminate duplicate code.",
+            "effort": "low",
+            "businessImpact": "Reducing duplication can improve maintainability and reduce bundle sizes."
+          }
+        ],
+        "summary": "The SyncFiles Project demonstrates good resource management with a microservices architecture and efficient data handling. However, there are areas for improvement in cost efficiency and resource utilization, particularly regarding dependency management and resource provisioning."
+      },
+      {
+        "name": "Business Continuity",
+        "score": 0,
+        "grade": "N/S",
+        "applicableCount": 0,
+        "totalCount": 3,
+        "attributes": [
+          {
+            "name": "Disaster Recovery",
+            "category": "Business Continuity",
+            "score": 0,
+            "grade": "N/S",
+            "confidence": "low",
+            "applicable": false,
+            "reasoning": "Not applicable — The project does not require extensive disaster recovery planning.",
+            "checkedItems": [],
+            "gaps": [],
+            "recommendations": []
+          },
+          {
+            "name": "Business Continuity",
+            "category": "Business Continuity",
+            "score": 0,
+            "grade": "N/S",
+            "confidence": "low",
+            "applicable": false,
+            "reasoning": "Not applicable — The project does not require extensive disaster recovery planning.",
+            "checkedItems": [],
+            "gaps": [],
+            "recommendations": []
+          },
+          {
+            "name": "Backup Recovery",
+            "category": "Business Continuity",
+            "score": 0,
+            "grade": "N/S",
+            "confidence": "low",
+            "applicable": false,
+            "reasoning": "Not applicable — The project does not require extensive disaster recovery planning.",
+            "checkedItems": [],
+            "gaps": [],
+            "recommendations": []
+          }
+        ],
+        "topFindings": [],
+        "summary": "Not applicable: The project does not require extensive disaster recovery planning."
+      },
+      {
+        "name": "Code Architecture",
+        "score": 73,
+        "grade": "B-",
+        "applicableCount": 8,
+        "totalCount": 8,
+        "attributes": [
+          {
+            "name": "Cohesion",
+            "category": "Code Architecture",
+            "score": 80,
+            "grade": "B+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "Modules are generally focused on single responsibilities, with related code co-located, but some classes may still exhibit low cohesion.",
+            "checkedItems": [
+              "Modules for client, server, and models are well-defined",
+              "Design patterns like Factory and Singleton are used",
+              "Feature co-location is evident in folder structure"
+            ],
+            "gaps": [
+              "Some classes may have multiple responsibilities",
+              "Potential for further refinement in method grouping"
+            ],
+            "recommendations": [
+              "Refactor classes to ensure single responsibility",
+              "Group related methods more cohesively"
+            ]
+          },
+          {
+            "name": "Coupling",
+            "category": "Code Architecture",
+            "score": 75,
+            "grade": "B",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project shows a good level of one-way dependencies, but the absence of interfaces in some areas may lead to tighter coupling.",
+            "checkedItems": [
+              "No circular dependencies found",
+              "Modules are mostly independent",
+              "Dependency direction is generally correct"
+            ],
+            "gaps": [
+              "Some concrete class dependencies instead of interfaces",
+              "Potential for deep import chains in certain modules"
+            ],
+            "recommendations": [
+              "Introduce interfaces to reduce coupling",
+              "Review import structures to flatten dependencies"
+            ]
+          },
+          {
+            "name": "Abstraction",
+            "category": "Code Architecture",
+            "score": 65,
+            "grade": "C+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "While there are some abstractions in place, there are instances of leaky abstractions exposing implementation details.",
+            "checkedItems": [
+              "Use of abstract types in data models",
+              "Some consistent interface patterns observed"
+            ],
+            "gaps": [
+              "Leaky abstractions in certain modules",
+              "Inconsistent abstraction levels across the codebase"
+            ],
+            "recommendations": [
+              "Review and refine abstractions to hide implementation details",
+              "Standardize interface design patterns"
+            ]
+          },
+          {
+            "name": "Encapsulation",
+            "category": "Code Architecture",
+            "score": 60,
+            "grade": "C",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "Encapsulation is present but could be improved by limiting public API exposure and controlling state access.",
+            "checkedItems": [
+              "Modules have defined public APIs",
+              "Some internal data structures are private"
+            ],
+            "gaps": [
+              "Direct access to internal data in some cases",
+              "Mutable state exposed without controlled accessors"
+            ],
+            "recommendations": [
+              "Limit public exports to essential APIs",
+              "Implement controlled access methods for mutable state"
+            ]
+          },
+          {
+            "name": "Separation of Concerns",
+            "category": "Code Architecture",
+            "score": 85,
+            "grade": "A-",
+            "confidence": "high",
+            "applicable": true,
+            "reasoning": "The project maintains clear layer boundaries, effectively separating presentation, business logic, and data access.",
+            "checkedItems": [
+              "Clear separation between client and server modules",
+              "Business logic is isolated from UI components"
+            ],
+            "gaps": [
+              "Some cross-cutting concerns may not be handled uniformly"
+            ],
+            "recommendations": [
+              "Implement middleware for consistent handling of cross-cutting concerns"
+            ]
+          },
+          {
+            "name": "Composability",
+            "category": "Code Architecture",
+            "score": 70,
+            "grade": "B-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "Functions are generally small and focused, but there are opportunities for better composition patterns.",
+            "checkedItems": [
+              "Small, focused functions observed",
+              "Some higher-order functions present"
+            ],
+            "gaps": [
+              "Monolithic functions in certain areas",
+              "Potential for deeper class hierarchies"
+            ],
+            "recommendations": [
+              "Encourage composition over inheritance",
+              "Refactor larger functions into smaller, composable units"
+            ]
+          },
+          {
+            "name": "Readability",
+            "category": "Code Architecture",
+            "score": 75,
+            "grade": "B",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "Code is mostly readable with meaningful names, but some inconsistencies in style and length could be addressed.",
+            "checkedItems": [
+              "Descriptive variable and function names",
+              "Consistent naming conventions in many files"
+            ],
+            "gaps": [
+              "Inconsistent formatting in some areas",
+              "Some functions exceed recommended length"
+            ],
+            "recommendations": [
+              "Enforce consistent code style with a linter",
+              "Refactor long functions for clarity"
+            ]
+          },
+          {
+            "name": "Simplicity",
+            "category": "Code Architecture",
+            "score": 70,
+            "grade": "B-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project generally adheres to YAGNI principles, but some areas exhibit unnecessary complexity.",
+            "checkedItems": [
+              "Minimal indirection in many functions",
+              "Flat control flow observed in several modules"
+            ],
+            "gaps": [
+              "Some functions have cyclomatic complexity exceeding recommended limits",
+              "Instances of over-engineering for simple problems"
+            ],
+            "recommendations": [
+              "Review functions for cyclomatic complexity",
+              "Simplify overly complex patterns"
+            ]
+          }
+        ],
+        "topFindings": [
+          {
+            "id": "F-mu0oudo9-00k",
+            "severity": "warning",
+            "status": "open",
+            "category": "Code Architecture",
+            "title": "Lack of Dependency Management",
+            "description": "The absence of manifest files indicates a lack of standardized dependency management, which can lead to versioning issues.",
+            "affectedFiles": [
+              "syncfiles-android/build.gradle.kts",
+              "syncfiles-server/src/lib.rs"
+            ],
+            "recommendation": "Introduce dependency management tools and manifest files to standardize dependencies.",
+            "effort": "medium",
+            "businessImpact": "Improving dependency management will enhance maintainability and reduce potential conflicts."
+          },
+          {
+            "id": "F-mu0oudo9-00l",
+            "severity": "info",
+            "status": "open",
+            "category": "Code Architecture",
+            "title": "Potential for Improved Encapsulation",
+            "description": "Some internal data structures are exposed directly, which can lead to unintended modifications.",
+            "affectedFiles": [
+              "syncfiles-client/src/main.rs",
+              "syncfiles-server/src/lib.rs"
+            ],
+            "recommendation": "Implement controlled access methods to encapsulate internal state.",
+            "effort": "low",
+            "businessImpact": "Enhancing encapsulation will improve code stability and reduce bugs."
+          }
+        ],
+        "summary": "The SyncFiles Project demonstrates good cohesion and separation of concerns, with a clear microservices architecture and well-defined modules. However, it lacks standardized dependency management and could benefit from improved encapsulation and abstraction practices."
+      },
+      {
+        "name": "DevOps & Evolution",
+        "score": 49,
+        "grade": "D",
+        "applicableCount": 7,
+        "totalCount": 7,
+        "attributes": [
+          {
+            "name": "Configurability",
+            "category": "DevOps & Evolution",
+            "score": 65,
+            "grade": "C+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project uses environment variables for configuration, which is a good practice, but lacks validation and feature flags.",
+            "checkedItems": [
+              "Uses environment variables for configuration (e.g., SF_SERVER_URL)",
+              "No hardcoded URLs or connection strings",
+              "Modular design allows for some configurability"
+            ],
+            "gaps": [
+              "No validation of configuration values at startup",
+              "Lacks feature flags for runtime toggles"
+            ],
+            "recommendations": [
+              "Implement configuration validation at startup",
+              "Introduce a feature flag system for runtime behavior changes"
+            ]
+          },
+          {
+            "name": "Installability",
+            "category": "DevOps & Evolution",
+            "score": 50,
+            "grade": "D+",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project lacks a one-command setup and has no documented prerequisites, making installation cumbersome.",
+            "checkedItems": [
+              "No single command for setup",
+              "Docker not utilized for development environment",
+              "Some scripts for setup present"
+            ],
+            "gaps": [
+              "No automated seed data for development",
+              "Undocumented dependencies on system tools"
+            ],
+            "recommendations": [
+              "Create a Docker Compose setup for local development",
+              "Document prerequisites and system requirements clearly"
+            ]
+          },
+          {
+            "name": "Upgradability",
+            "category": "DevOps & Evolution",
+            "score": 40,
+            "grade": "D",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks migration scripts and a changelog, which are essential for managing upgrades.",
+            "checkedItems": [
+              "No migration scripts found",
+              "No changelog or upgrade guide"
+            ],
+            "gaps": [
+              "Manual schema changes required",
+              "No backward-compatible schema changes"
+            ],
+            "recommendations": [
+              "Implement automated migration scripts",
+              "Maintain a changelog with upgrade instructions"
+            ]
+          },
+          {
+            "name": "Rollbackability",
+            "category": "DevOps & Evolution",
+            "score": 30,
+            "grade": "D-",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "There are no rollback mechanisms or feature flags, which poses a risk during deployments.",
+            "checkedItems": [
+              "No rollback mechanism found",
+              "No feature flags for new features"
+            ],
+            "gaps": [
+              "Destructive migrations that cannot be reversed",
+              "No blue-green or canary deployment strategies"
+            ],
+            "recommendations": [
+              "Introduce feature flags for new features",
+              "Implement a rollback strategy for deployments"
+            ]
+          },
+          {
+            "name": "Reproducibility",
+            "category": "DevOps & Evolution",
+            "score": 45,
+            "grade": "D",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The project does not have lock files, which affects build reproducibility.",
+            "checkedItems": [
+              "No lock files committed",
+              "No pinned dependency versions"
+            ],
+            "gaps": [
+              "Non-deterministic builds due to floating versions",
+              "Unpinned base images"
+            ],
+            "recommendations": [
+              "Introduce lock files for dependencies",
+              "Pin base images in Dockerfiles"
+            ]
+          },
+          {
+            "name": "Evolvability",
+            "category": "DevOps & Evolution",
+            "score": 70,
+            "grade": "B-",
+            "confidence": "medium",
+            "applicable": true,
+            "reasoning": "The modular architecture supports independent changes, but lacks a documented deprecation policy.",
+            "checkedItems": [
+              "Modular architecture enabling independent changes",
+              "Design patterns like Factory and Singleton used"
+            ],
+            "gaps": [
+              "No deprecation policy or timeline",
+              "No changelog tracking evolution"
+            ],
+            "recommendations": [
+              "Establish a documented deprecation policy",
+              "Maintain a changelog for architectural decisions"
+            ]
+          },
+          {
+            "name": "Discoverability",
+            "category": "DevOps & Evolution",
+            "score": 40,
+            "grade": "D",
+            "confidence": "low",
+            "applicable": true,
+            "reasoning": "The project lacks comprehensive API documentation and has an outdated README, making it hard to navigate.",
+            "checkedItems": [
+              "No API documentation found",
+              "Inconsistent project structure"
+            ],
+            "gaps": [
+              "Outdated README with no architecture overview",
+              "No service catalog or system map"
+            ],
+            "recommendations": [
+              "Create auto-generated API documentation",
+              "Update README with architecture overview and setup guide"
+            ]
+          }
+        ],
+        "topFindings": [
+          {
+            "id": "F-mu0oukc2-00m",
+            "severity": "critical",
+            "status": "open",
+            "category": "DevOps & Evolution",
+            "title": "Lack of Migration Scripts",
+            "description": "The absence of migration scripts poses a significant risk during database upgrades.",
+            "affectedFiles": [],
+            "recommendation": "Implement automated migration scripts as part of the deployment process.",
+            "effort": "high",
+            "businessImpact": "This could lead to data loss or downtime during upgrades."
+          },
+          {
+            "id": "F-mu0oukc2-00n",
+            "severity": "warning",
+            "status": "open",
+            "category": "DevOps & Evolution",
+            "title": "No Rollback Mechanism",
+            "description": "Without a rollback mechanism, deployments could lead to prolonged outages if issues arise.",
+            "affectedFiles": [],
+            "recommendation": "Introduce a rollback strategy, such as blue-green deployments.",
+            "effort": "medium",
+            "businessImpact": "This increases the risk of downtime and user dissatisfaction."
+          },
+          {
+            "id": "F-mu0oukc2-00o",
+            "severity": "info",
+            "status": "open",
+            "category": "DevOps & Evolution",
+            "title": "Outdated README",
+            "description": "The README does not provide sufficient information for new developers.",
+            "affectedFiles": [
+              "README.md"
+            ],
+            "recommendation": "Update the README to include setup instructions and architecture overview.",
+            "effort": "low",
+            "businessImpact": "Improving documentation will enhance onboarding and reduce developer friction."
+          }
+        ],
+        "summary": "The SyncFiles Project demonstrates a modular architecture and some configurability, which are strengths for maintainability and adaptability. However, it lacks comprehensive documentation and automated migration strategies, which are critical for effective evolution and deployment."
+      }
+    ],
+    "findings": [
+      {
+        "id": "F-mu0otd56-004",
+        "severity": "critical",
+        "status": "open",
+        "category": "Reliability & Resilience",
+        "title": "Lack of Health Checks",
+        "description": "The project does not implement health check endpoints, risking undetected service failures.",
+        "affectedFiles": [
+          "syncfiles-server/src/main.rs"
+        ],
+        "recommendation": "Implement liveness and readiness health check endpoints.",
+        "effort": "medium",
+        "businessImpact": "Without health checks, service failures may go unnoticed, impacting user experience."
+      },
+      {
+        "id": "F-mu0otl3k-007",
+        "severity": "critical",
+        "status": "open",
+        "category": "Security & Compliance",
+        "title": "Lack of Input Validation",
+        "description": "The project does not validate user input on API endpoints, creating potential injection vulnerabilities.",
+        "affectedFiles": [
+          "syncfiles-server/src/handlers.rs"
+        ],
+        "recommendation": "Implement input validation for all user-supplied data in API endpoints.",
+        "effort": "medium",
+        "businessImpact": "This could lead to data breaches or unauthorized access to sensitive information."
+      },
+      {
+        "id": "F-mu0otsfc-00a",
+        "severity": "critical",
+        "status": "open",
+        "category": "Maintainability & Operations",
+        "title": "Lack of Operational Documentation",
+        "description": "The project lacks runbooks and operational documentation, making it difficult for new team members to understand operational tasks.",
+        "affectedFiles": [],
+        "recommendation": "Create comprehensive runbooks for common operational tasks and link them from alerting systems.",
+        "effort": "medium",
+        "businessImpact": "This can lead to increased onboarding time and operational errors."
+      },
+      {
+        "id": "F-mu0oukc2-00m",
+        "severity": "critical",
+        "status": "open",
+        "category": "DevOps & Evolution",
+        "title": "Lack of Migration Scripts",
+        "description": "The absence of migration scripts poses a significant risk during database upgrades.",
+        "affectedFiles": [],
+        "recommendation": "Implement automated migration scripts as part of the deployment process.",
+        "effort": "high",
+        "businessImpact": "This could lead to data loss or downtime during upgrades."
+      },
+      {
+        "id": "F-mu0ot5r8-001",
+        "severity": "warning",
+        "status": "open",
+        "category": "Performance & Scale",
+        "title": "Missing Load Testing Configuration",
+        "description": "The project lacks a load testing configuration, which is essential for validating performance under expected traffic.",
+        "affectedFiles": [
+          "syncfiles-server/src/main.rs"
+        ],
+        "recommendation": "Create and integrate load testing configurations into the CI pipeline.",
+        "effort": "medium",
+        "businessImpact": "Without load testing, the application may not perform well under real-world conditions, leading to potential downtime."
+      },
+      {
+        "id": "F-mu0ot5r8-002",
+        "severity": "warning",
+        "status": "open",
+        "category": "Performance & Scale",
+        "title": "Lack of Caching Strategy",
+        "description": "There is no caching strategy implemented, which can lead to increased latency and reduced performance.",
+        "affectedFiles": [
+          "syncfiles-server/src/lib.rs"
+        ],
+        "recommendation": "Implement caching mechanisms at both the application and HTTP levels.",
+        "effort": "high",
+        "businessImpact": "Increased latency can lead to poor user experience and higher operational costs."
+      },
+      {
+        "id": "F-mu0otd56-005",
+        "severity": "warning",
+        "status": "open",
+        "category": "Reliability & Resilience",
+        "title": "Missing Circuit Breakers",
+        "description": "The absence of circuit breaker patterns increases the risk of cascading failures.",
+        "affectedFiles": [
+          "syncfiles-client/src/network.rs"
+        ],
+        "recommendation": "Introduce circuit breaker patterns for external service calls.",
+        "effort": "high",
+        "businessImpact": "Cascading failures can lead to complete service outages."
+      },
+      {
+        "id": "F-mu0otd56-006",
+        "severity": "warning",
+        "status": "open",
+        "category": "Reliability & Resilience",
+        "title": "No Automated Rollback Mechanism",
+        "description": "The project lacks an automated rollback mechanism for failed deployments.",
+        "affectedFiles": [
+          "syncfiles-server/src/main.rs"
+        ],
+        "recommendation": "Implement automated rollback on deployment failure.",
+        "effort": "medium",
+        "businessImpact": "Manual recovery procedures can lead to prolonged downtime."
+      },
+      {
+        "id": "F-mu0otl3k-008",
+        "severity": "warning",
+        "status": "open",
+        "category": "Security & Compliance",
+        "title": "Missing Encryption for Sensitive Data",
+        "description": "Sensitive data is not encrypted at rest, increasing the risk of data exposure.",
+        "affectedFiles": [
+          "syncfiles-server/src/storage.rs"
+        ],
+        "recommendation": "Implement AES-256 encryption for sensitive data stored in the database.",
+        "effort": "high",
+        "businessImpact": "Failure to protect sensitive data could lead to compliance violations and reputational damage."
+      },
+      {
+        "id": "F-mu0otl3k-009",
+        "severity": "warning",
+        "status": "open",
+        "category": "Security & Compliance",
+        "title": "No Rate Limiting on API Endpoints",
+        "description": "API endpoints lack rate limiting, making them vulnerable to abuse and denial-of-service attacks.",
+        "affectedFiles": [
+          "syncfiles-server/src/main.rs"
+        ],
+        "recommendation": "Implement rate limiting on all API endpoints to mitigate abuse.",
+        "effort": "medium",
+        "businessImpact": "This could lead to service outages and degraded performance for legitimate users."
+      },
+      {
+        "id": "F-mu0otsfc-00b",
+        "severity": "warning",
+        "status": "open",
+        "category": "Maintainability & Operations",
+        "title": "Manual Deployment Process",
+        "description": "The deployment process is manual and lacks automation, which can lead to downtime during updates.",
+        "affectedFiles": [
+          "scripts/e2e-test.sh"
+        ],
+        "recommendation": "Implement an automated CI/CD pipeline to streamline deployments.",
+        "effort": "high",
+        "businessImpact": "Manual deployments increase the risk of errors and downtime."
+      },
+      {
+        "id": "F-mu0otwj8-00d",
+        "severity": "warning",
+        "status": "open",
+        "category": "User Experience",
+        "title": "Inconsistent UI Patterns",
+        "description": "The application exhibits inconsistent navigation and UI patterns across different modules.",
+        "affectedFiles": [
+          "syncfiles-client/src/main.rs",
+          "syncfiles-server/src/main.rs"
+        ],
+        "recommendation": "Establish a design system to ensure consistent UI components and navigation patterns.",
+        "effort": "medium",
+        "businessImpact": "Inconsistent UI can lead to user confusion and decreased satisfaction."
+      },
+      {
+        "id": "F-mu0ou1r8-00f",
+        "severity": "warning",
+        "status": "open",
+        "category": "Integration & Portability",
+        "title": "Lack of API Documentation",
+        "description": "The project does not provide OpenAPI or JSON Schema documentation for its APIs.",
+        "affectedFiles": [
+          "syncfiles-server/src/main.rs"
+        ],
+        "recommendation": "Generate OpenAPI specifications from the codebase to improve API documentation.",
+        "effort": "medium",
+        "businessImpact": "Without proper documentation, integration with other services may be challenging."
+      },
+      {
+        "id": "F-mu0ou1r8-00g",
+        "severity": "warning",
+        "status": "open",
+        "category": "Integration & Portability",
+        "title": "No Containerization",
+        "description": "The project lacks Docker support for containerized deployment.",
+        "affectedFiles": [],
+        "recommendation": "Introduce Docker to facilitate easier deployment across different environments.",
+        "effort": "high",
+        "businessImpact": "Without containerization, deployment may be inconsistent across environments."
+      },
+      {
+        "id": "F-mu0ou70r-00h",
+        "severity": "warning",
+        "status": "open",
+        "category": "Efficiency",
+        "title": "Lack of Cost Monitoring",
+        "description": "The project does not implement any cost monitoring or budget alerts, which could lead to unexpected expenses.",
+        "affectedFiles": [
+          "syncfiles-server/src/main.rs"
+        ],
+        "recommendation": "Integrate cost monitoring tools to track resource usage and expenses.",
+        "effort": "medium",
+        "businessImpact": "Without cost monitoring, the project risks overspending on cloud resources."
+      },
+      {
+        "id": "F-mu0ou70r-00i",
+        "severity": "warning",
+        "status": "open",
+        "category": "Efficiency",
+        "title": "No Connection Pooling",
+        "description": "The project does not utilize connection pooling, which can lead to increased resource overhead.",
+        "affectedFiles": [
+          "syncfiles-client/src/network.rs"
+        ],
+        "recommendation": "Implement connection pooling to optimize resource usage.",
+        "effort": "medium",
+        "businessImpact": "Inefficient resource usage can lead to higher operational costs and slower performance."
+      },
+      {
+        "id": "F-mu0oudo9-00k",
+        "severity": "warning",
+        "status": "open",
+        "category": "Code Architecture",
+        "title": "Lack of Dependency Management",
+        "description": "The absence of manifest files indicates a lack of standardized dependency management, which can lead to versioning issues.",
+        "affectedFiles": [
+          "syncfiles-android/build.gradle.kts",
+          "syncfiles-server/src/lib.rs"
+        ],
+        "recommendation": "Introduce dependency management tools and manifest files to standardize dependencies.",
+        "effort": "medium",
+        "businessImpact": "Improving dependency management will enhance maintainability and reduce potential conflicts."
+      },
+      {
+        "id": "F-mu0oukc2-00n",
+        "severity": "warning",
+        "status": "open",
+        "category": "DevOps & Evolution",
+        "title": "No Rollback Mechanism",
+        "description": "Without a rollback mechanism, deployments could lead to prolonged outages if issues arise.",
+        "affectedFiles": [],
+        "recommendation": "Introduce a rollback strategy, such as blue-green deployments.",
+        "effort": "medium",
+        "businessImpact": "This increases the risk of downtime and user dissatisfaction."
+      },
+      {
+        "id": "F-mu0ot5r8-003",
+        "severity": "info",
+        "status": "open",
+        "category": "Performance & Scale",
+        "title": "Potential N+1 Query Patterns",
+        "description": "The project may have N+1 query patterns that could degrade performance.",
+        "affectedFiles": [
+          "syncfiles-server/src/db.rs"
+        ],
+        "recommendation": "Profile database queries to identify and optimize N+1 patterns.",
+        "effort": "medium",
+        "businessImpact": "Optimizing queries can significantly improve response times and reduce database load."
+      },
+      {
+        "id": "F-mu0otsfc-00c",
+        "severity": "info",
+        "status": "open",
+        "category": "Maintainability & Operations",
+        "title": "Inconsistent Logging Practices",
+        "description": "Logging is not standardized across the project, leading to difficulties in debugging.",
+        "affectedFiles": [
+          "syncfiles-server/src/main.rs"
+        ],
+        "recommendation": "Standardize logging formats and implement correlation IDs.",
+        "effort": "medium",
+        "businessImpact": "Inconsistent logging can hinder troubleshooting and increase resolution times."
+      },
+      {
+        "id": "F-mu0otwj8-00e",
+        "severity": "info",
+        "status": "open",
+        "category": "User Experience",
+        "title": "Lack of Accessibility Features",
+        "description": "The project lacks comprehensive accessibility features, which may hinder usability for users with disabilities.",
+        "affectedFiles": [
+          "syncfiles-server/static/app.js"
+        ],
+        "recommendation": "Implement ARIA roles and conduct accessibility testing to ensure compliance.",
+        "effort": "high",
+        "businessImpact": "Improving accessibility can broaden the user base and enhance user experience."
+      },
+      {
+        "id": "F-mu0ou70r-00j",
+        "severity": "info",
+        "status": "open",
+        "category": "Efficiency",
+        "title": "Potential Code Duplication",
+        "description": "There are instances of potential code duplication across modules.",
+        "affectedFiles": [
+          "syncfiles-client/src/main.rs",
+          "syncfiles-server/src/main.rs"
+        ],
+        "recommendation": "Conduct a code review to identify and eliminate duplicate code.",
+        "effort": "low",
+        "businessImpact": "Reducing duplication can improve maintainability and reduce bundle sizes."
+      },
+      {
+        "id": "F-mu0oudo9-00l",
+        "severity": "info",
+        "status": "open",
+        "category": "Code Architecture",
+        "title": "Potential for Improved Encapsulation",
+        "description": "Some internal data structures are exposed directly, which can lead to unintended modifications.",
+        "affectedFiles": [
+          "syncfiles-client/src/main.rs",
+          "syncfiles-server/src/lib.rs"
+        ],
+        "recommendation": "Implement controlled access methods to encapsulate internal state.",
+        "effort": "low",
+        "businessImpact": "Enhancing encapsulation will improve code stability and reduce bugs."
+      },
+      {
+        "id": "F-mu0oukc2-00o",
+        "severity": "info",
+        "status": "open",
+        "category": "DevOps & Evolution",
+        "title": "Outdated README",
+        "description": "The README does not provide sufficient information for new developers.",
+        "affectedFiles": [
+          "README.md"
+        ],
+        "recommendation": "Update the README to include setup instructions and architecture overview.",
+        "effort": "low",
+        "businessImpact": "Improving documentation will enhance onboarding and reduce developer friction."
+      }
+    ],
+    "stats": {
+      "fileCount": 58,
+      "totalLines": 14397,
+      "edgeCount": 0,
+      "circularDepCount": 0
+    },
+    "executiveSummary": "The SyncFiles Project demonstrates a commendable microservices architecture with clear separation of concerns, particularly in its client and server modules. However, the lack of standardized dependency management and limited error handling raise concerns about maintainability and reliability.",
+    "quickWins": [
+      "Add logging to critical operations for better observability.",
+      "Implement basic unit tests for key components.",
+      "Improve documentation for API endpoints."
+    ],
+    "techStack": {
+      "language": "Kotlin",
+      "frameworks": [],
+      "patterns": [],
+      "designPatterns": [
+        "Factory",
+        "Singleton"
+      ]
+    },
+    "scanMode": "full",
+    "projectIdentification": {
+      "projectType": "Full-Stack Web App",
+      "projectDescription": "The SyncFiles Project is a full-stack application designed for file synchronization across devices, featuring a client application, server API, and a command-line interface.",
+      "primaryLanguage": "Kotlin",
+      "secondaryLanguages": [
+        "Rust",
+        "JavaScript"
+      ],
+      "frameworks": [],
+      "architectureStyle": "Microservices",
+      "observations": [
+        "The project uses a microservices architecture with separate modules for client, server, and models.",
+        "Design patterns like Factory and Singleton are implemented, indicating a focus on object-oriented design.",
+        "The absence of manifest files suggests a lack of standardized dependency management.",
+        "The project includes both a command-line interface and a graphical user interface, indicating versatility in user interaction."
+      ]
+    },
+    "metadata": {
+      "validationIssues": [
+        {
+          "type": "score-divergence",
+          "category": "Reliability & Resilience",
+          "message": "\"Reliability\" (70) and \"Fault Tolerance\" (30) diverge by 40 points — related attributes usually correlate",
+          "attributes": [
+            "Reliability",
+            "Fault Tolerance"
+          ]
+        }
+      ]
+    },
+    "gitInfo": {
+      "branch": "main",
+      "commitHash": "694e0cb",
+      "commitMessage": "feat(server,client,android): change_log como fuente del diff + pull de rename/move/copy + deletes locales",
+      "author": "Firebender <firebender@Benjamins-MacBook-Pro.local>",
+      "remoteUrl": "https://github.com/benjaminllamas-pixel/SyncFiles.git",
+      "repoName": "benjaminllamas-pixel/SyncFiles"
+    }
+  }
+}

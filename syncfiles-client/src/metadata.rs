@@ -80,7 +80,16 @@ pub struct MetadataStore {
 impl MetadataStore {
     pub fn new(cfg: Config) -> Result<Self> {
         let db_path = Config::data_dir().join("syncfiles.db");
-        let conn = Connection::open(&db_path)?;
+        Self::with_path(cfg, &db_path)
+    }
+
+    /// Constructor para tests: abre una DB en un path arbitrario (aislado,
+    /// sin depender de la variable de entorno global SF_DATA_DIR).
+    pub fn with_path(cfg: Config, db_path: &Path) -> Result<Self> {
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Connection::open(db_path)?;
         conn.execute_batch(syncfiles_models::schema::CLIENT_INIT_SQL)?;
         info!("Base de datos local inicializada: {}", db_path.display());
         Ok(Self { conn, config: cfg })
@@ -511,15 +520,12 @@ mod tests {
         ));
         std::fs::remove_dir_all(&tmp).ok();
         std::fs::create_dir_all(&tmp).unwrap();
-        // Config::data_dir() lee SF_DATA_DIR; se setea por test (tests corren
-        // en el mismo proceso, así que se restaura el valor al final del test).
-        std::env::set_var("SF_DATA_DIR", &tmp);
-        let store = MetadataStore::new(test_config(&tmp.join("sync"))).unwrap();
+        let db_path = tmp.join("sync").join("syncfiles.db");
+        let store = MetadataStore::with_path(test_config(&tmp.join("sync")), &db_path).unwrap();
         (store, tmp)
     }
 
     fn cleanup(tmp: &std::path::PathBuf) {
-        std::env::remove_var("SF_DATA_DIR");
         std::fs::remove_dir_all(tmp).ok();
     }
 
@@ -676,8 +682,8 @@ mod tests {
         store.update_queue_status(&queue_id, "retry", Some("HTTP 400")).unwrap();
         store.increment_attempts(&queue_id).unwrap();
 
-        // "Reinicio": nueva MetadataStore sobre el mismo SF_DATA_DIR.
-        let reopened = MetadataStore::new(test_config(&tmp.join("sync"))).unwrap();
+        // "Reinicio": nueva MetadataStore sobre el mismo archivo DB.
+        let reopened = MetadataStore::with_path(test_config(&tmp.join("sync")), &tmp.join("sync").join("syncfiles.db")).unwrap();
         let queued = reopened.get_queued_ops().unwrap();
         assert_eq!(queued.len(), 1);
         assert_eq!(queued[0].status, "retry");
@@ -736,7 +742,7 @@ mod tests {
         store.set_last_server_seq(41).unwrap();
         assert_eq!(store.get_last_server_seq().unwrap(), 41);
 
-        let reopened = MetadataStore::new(test_config(&tmp.join("sync"))).unwrap();
+        let reopened = MetadataStore::with_path(test_config(&tmp.join("sync")), &tmp.join("sync").join("syncfiles.db")).unwrap();
         assert_eq!(reopened.get_last_server_seq().unwrap(), 41);
         cleanup(&tmp);
     }

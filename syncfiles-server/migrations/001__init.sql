@@ -1,3 +1,8 @@
+-- SyncFiles V1 schema (idempotent: CREATE TABLE IF NOT EXISTS).
+-- Las tablas ya existentes en SERVER_INIT_SQL no se recrean; esta migración
+-- añade lo que el motor de migraciones no cubre (índices compuestos, tablas
+-- auxiliares) y es la base del sistema versionado.
+
 CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
     email TEXT NOT NULL,
@@ -100,6 +105,21 @@ CREATE TABLE IF NOT EXISTS metadata (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS change_log (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    file_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    path_hash TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    old_path TEXT,
+    checksum TEXT NOT NULL,
+    size_bytes INTEGER,
+    modified_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_change_log_user_seq ON change_log(user_id, seq);
 CREATE INDEX IF NOT EXISTS idx_files_user_path ON files(user_id, path_hash);
 CREATE INDEX IF NOT EXISTS idx_files_user_deleted ON files(user_id, deleted_at);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_user_status ON sync_queue(user_id, status, created_at);

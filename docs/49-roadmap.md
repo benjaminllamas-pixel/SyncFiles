@@ -60,27 +60,38 @@ Entregar una solución funcional de sincronización para un único usuario y var
 - la cola soporta reinicio y reintentos,
 - no hay pérdida de datos bajo fallos transitorios esperados.
 
-## 4. Fase 2: estabilización y hardening de V1
+## 4. Fase 2: estabilización y hardening de V1 — COMPLETADA
 
 ### Objetivo
 Hacer que V1 sea operable y robusta para uso real con un número moderado de archivos y dispositivos.
 
 ### Entregables
-- pruebas de integración,
-- pruebas de seguridad,
-- métricas y observabilidad,
-- pipeline de CI/CD,
-- distribución de clientes de producción,
-- rollback, soporte y operación minimamente documentada.
+- pruebas de integración (39 tests server: 22 API + 8 dashboard + 9 lib),
+- pruebas de seguridad (sesión expirada 401, rate limit 429, Content-Type,
+  path traversal/absoluto — con fix real de rutas absolutas),
+- métricas y observabilidad (logging JSON con request_id/correlation ID,
+  health checks `/health/live` + `/health/ready`),
+- pipeline de CI/CD (`.github/workflows/ci.yml`: Rust check/test/clippy +
+  Android assembleDebug con artefacto),
+- distribución de clientes de producción (binarios release, APK firmado,
+  cliente Emacs),
+- migraciones versionadas idempotentes (`syncfiles-server/migrations/`).
 
 ### Backlog principal
-- [ ] pruebas unitarias de sincronización,
-- [ ] pruebas de conflicto y recuperación,
-- [ ] pruebas de seguridad de sesión y acceso,
-- [ ] pruebas de rendimiento sobre archivos pequeños y medianos,
-- [ ] testing de redes inestables,
-- [ ] configuración de actualización de clientes,
-- [ ] release management y rollback.
+- [x] pruebas unitarias de sincronización (31 en `syncfiles-client`:
+  network con mock HTTP, sync engine, metadata, config; 15 en models),
+- [x] pruebas de conflicto y recuperación (409 → resolución, cola
+  persistida reanudada tras reinicio, E2E fase 5),
+- [x] pruebas de seguridad de sesión y acceso (expiración, revocación de
+  dispositivos, rate limiting, validación de paths),
+- [x] pruebas de rendimiento sobre archivos pequeños y medianos (E2E con
+  binario 64 KiB, checksum verificado),
+- [x] testing de redes inestables (E2E fase 5.5: server caído → fallo
+  limpio; recuperación → reintento),
+- [x] configuración de actualización de clientes (documentado en
+  `docs/48-documentacion-usuario.md`),
+- [x] release management y rollback (CI por PR a main; rollback orquestado
+  queda para despliegue multi-instancia — V2).
 
 ## 5. Fase 3: V2 preparación y evolución natural
 

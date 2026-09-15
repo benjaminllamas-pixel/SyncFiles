@@ -87,12 +87,20 @@ echo "[5/7] Diff..."
 DIFF_RESP=$(SF_SERVER_URL="$SERVER_URL" SF_EMAIL="$EMAIL" SF_PASSWORD="$PASSWORD" SF_DEVICE_ID="$DEVICE_ID" "$CLI_BIN" diff 0)
 echo "      Diff response: $(echo "$DIFF_RESP" | head -c 200)"
 
-# Download and verify (usa el file_id real devuelto por el diff)
+# Download and verify (usa el file_id de test.txt desde files/list; el diff
+# excluye cambios del propio device desde el cursor seq de 694e0cb)
 echo "[6/7] Download y verificación..."
-FILE_ID=$(echo "$DIFF_RESP" | grep -o '"file_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+LIST_RESP=$(curl -s -H "Authorization: Bearer $SESSION_ID" "$SERVER_URL/api/v1/files/list")
+FILE_ID=$(echo "$LIST_RESP" | python3 -c "
+import json,sys
+data = json.load(sys.stdin)
+for f in data.get('files', []):
+    if f.get('relative_path') == 'test.txt':
+        print(f['file_id']); break
+" 2>/dev/null || true)
 if [ -z "$FILE_ID" ]; then
-    echo "FAIL: Diff no devolvió ningún file_id"
-    echo "$DIFF_RESP"
+    echo "FAIL: files/list no devolvió file_id para test.txt"
+    echo "$LIST_RESP"
     exit 1
 fi
 DL_RESP=$(SF_SERVER_URL="$SERVER_URL" SF_EMAIL="$EMAIL" SF_PASSWORD="$PASSWORD" SF_DEVICE_ID="$DEVICE_ID" "$CLI_BIN" download "$FILE_ID" "$WORKDIR/dl-test.txt")
