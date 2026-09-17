@@ -6,8 +6,6 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tracing::info;
 
-use syncfiles_models::{compute_checksum, compute_path_hash};
-
 pub struct FileWatcher {
     root: PathBuf,
     on_change: Arc<dyn Fn(String) + Send + Sync>,
@@ -22,7 +20,7 @@ impl FileWatcher {
         let on_change = self.on_change.clone();
         let canonical_root = std::fs::canonicalize(&self.root).unwrap_or_else(|_| self.root.clone());
         let root_str = canonical_root.to_str().unwrap_or_default().to_string();
-        let root = self.root.clone();
+        let _root = self.root.clone();
         let debounce_state = Arc::new(Mutex::new(std::collections::HashMap::<String, Instant>::new()));
         let debounce_state_inner = debounce_state.clone();
 

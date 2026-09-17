@@ -38,6 +38,7 @@ fn ok_response<T: serde::Serialize>(data: Option<T>, server_seq: i64) -> HttpRes
     })
 }
 
+#[allow(clippy::result_large_err)]
 async fn authorize_session(
     state: &AppState,
     request: &HttpRequest,
@@ -810,16 +811,16 @@ pub async fn resolve_conflict_handler(
 
     match req.decision.to_lowercase().as_str() {
         "keep" | "keep_local" | "keep_remote" => {
-            if req.preserve_alternative {
-                if !relative_path.is_empty() {
-                    let preserved = format!(
-                        "{}.conflict_{}_{}",
-                        relative_path, &req.conflict_id, now_ms()
-                    );
-                    if let Ok(dst) = normalize_relative_path(&preserved) {
-                        if let Err(e) = state.storage.copy(&session.user_id, &relative_path, &dst).await {
-                            warn!("No se pudo preservar alternativa: {}", e);
-                        }
+            if req.preserve_alternative
+                && !relative_path.is_empty()
+            {
+                let preserved = format!(
+                    "{}.conflict_{}_{}",
+                    relative_path, req.conflict_id, now_ms()
+                );
+                if let Ok(dst) = normalize_relative_path(&preserved) {
+                    if let Err(e) = state.storage.copy(&session.user_id, &relative_path, &dst).await {
+                        warn!("No se pudo preservar alternativa: {}", e);
                     }
                 }
             }

@@ -1,8 +1,10 @@
 pub mod auth;
+pub mod backup;
 pub mod config;
 pub mod db;
 pub mod handlers;
 pub mod health;
+pub mod jobs;
 pub mod middleware;
 pub mod migrations;
 pub mod models;

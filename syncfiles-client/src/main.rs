@@ -39,6 +39,7 @@ fn main() -> eframe::Result<()> {
     )
 }
 
+#[allow(dead_code)]
 struct SyncFilesUi {
     config: crate::config::Config,
     metadata: Arc<std::sync::Mutex<crate::metadata::MetadataStore>>,
@@ -119,6 +120,7 @@ enum FileState {
     Deleted,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct UiConflict {
     conflict_id: String,
@@ -131,6 +133,7 @@ struct UiConflict {
     resolved: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct UiDevice {
     device_id: String,
@@ -148,6 +151,7 @@ struct Notification {
     created_at: std::time::Instant,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 enum Modal {
     None,
@@ -268,7 +272,7 @@ impl SyncFilesUi {
             let metadata = self.metadata.clone();
             let root = self.config.sync_root.clone();
             let watcher = crate::watcher::FileWatcher::new(root, Arc::new(move |path_str| {
-                let mut store = metadata.lock().unwrap();
+                let store = metadata.lock().unwrap();
                 if let Err(e) = store.enqueue(&path_str, "pending", None) {
                     tracing::warn!("Failed to enqueue watcher change: {}", e);
                 }
@@ -412,7 +416,7 @@ impl SyncFilesUi {
             file.status = state;
         }
 
-        files.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+        files.sort_by_key(|f| f.path.to_lowercase());
         self.files = files;
         if self.files.is_empty() {
             self.activity.insert(0, "Carpeta vacia".to_string());
@@ -684,11 +688,11 @@ impl SyncFilesUi {
         let path_for_log = path.clone();
 
         let local = sync_root.join(&path);
-        if local.exists() {
-            if std::fs::remove_file(&local).is_err() {
-                self.notify(NotificationKind::Error, "No se pudo borrar localmente");
-                return;
-            }
+        if local.exists()
+            && std::fs::remove_file(&local).is_err()
+        {
+            self.notify(NotificationKind::Error, "No se pudo borrar localmente");
+            return;
         }
 
         std::thread::spawn(move || {
@@ -879,7 +883,7 @@ impl SyncFilesUi {
             ui.label("No hay conflictos pendientes.");
             return;
         }
-        let conflicts: Vec<_> = self.conflicts.iter().cloned().collect();
+        let conflicts: Vec<_> = self.conflicts.to_vec();
         egui::Frame::group(ui.style()).show(ui, |ui| {
             egui::Grid::new("conflicts").striped(true).show(ui, |ui| {
                 ui.strong("Archivo");
@@ -1517,7 +1521,7 @@ fn headless_main() {
         let metadata_cb = metadata.clone();
         let root = config.sync_root.clone();
         let watcher = crate::watcher::FileWatcher::new(root, Arc::new(move |path_str| {
-            let mut store = metadata_cb.lock().unwrap();
+            let store = metadata_cb.lock().unwrap();
             if let Err(e) = store.enqueue(&path_str, "pending", None) {
                 tracing::warn!("headless: error encolando cambio: {e}");
             }

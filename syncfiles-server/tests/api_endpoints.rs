@@ -13,8 +13,6 @@ const PASSWORD: &str = "syncfiles";
 const USER_ID: &str = "user-test-001";
 const DEVICE_ID: &str = "device-test-001";
 
-type AppService<S> = S;
-
 async fn setup() -> Arc<AppState> {
     let tmp = tempfile::tempdir().expect("tempdir");
     let db_path = tmp.keep();
@@ -40,7 +38,7 @@ async fn make_app(
         App::new()
             .wrap(actix_cors::Cors::permissive())
             .app_data(web::Data::new(state))
-            .service(
+             .service(
                 web::scope("/api/v1")
                     .route("/auth/login", web::post().to(handlers::login_handler))
                     .route("/session/status", web::get().to(handlers::session_status_handler))
@@ -60,6 +58,11 @@ async fn make_app(
                     .route("/storage/stats", web::get().to(handlers::storage_stats_handler))
                     .route("/conflicts/resolve", web::post().to(handlers::resolve_conflict_handler))
                     .default_service(web::route().to(handlers::not_found))
+            )
+            .service(
+                web::scope("/health")
+                    .service(syncfiles_server::health::liveness)
+                    .service(syncfiles_server::health::readiness)
             ),
     )
     .await
@@ -872,9 +875,10 @@ async fn upload_rejects_traversal_and_absolute_paths() {
 #[actix_web::test]
 async fn rate_limiter_blocks_excess_requests() {
     use std::time::Duration;
+    use syncfiles_server::middleware::RateLimiter;
 
     // Token bucket directo: rps=2, burst=3 (sin HTTP, unit test del limiter)
-    let limiter = syncfiles_server::middleware::RateLimiter::new(2, 3);
+    let limiter = syncfiles_server::middleware::InMemoryRateLimiter::new(2, 3);
     let key = "1.2.3.4:9999";
     // Las primeras 3 (burst) pasan
     assert!(limiter.allow(key), "burst 1");
@@ -925,4 +929,32 @@ async fn content_type_middleware_rejects_non_json() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+// ===== Health check tests (A-11) =====
+
+#[actix_web::test]
+async fn health_live_returns_200() {
+    let state = setup().await;
+    let app = make_app(state).await;
+
+    let req = test::TestRequest::get().uri("/health/live").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["status"], "alive");
+}
+
+#[actix_web::test]
+async fn health_ready_returns_200_when_db_and_storage_ok() {
+    let state = setup().await;
+    let app = make_app(state).await;
+
+    let req = test::TestRequest::get().uri("/health/ready").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["status"], "ready");
+    assert_eq!(body["checks"]["database"], "ok");
+    assert_eq!(body["checks"]["storage"], "ok");
 }

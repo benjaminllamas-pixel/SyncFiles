@@ -23,7 +23,7 @@ pub async fn run_migrations(pool: &SqlitePool, migrations_dir: &Path) -> anyhow:
     let mut files: Vec<_> = fs::read_dir(migrations_dir)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().map_or(false, |e| e == "sql"))
+        .filter(|p| p.extension().is_some_and(|e| e == "sql"))
         .collect();
     files.sort();
 

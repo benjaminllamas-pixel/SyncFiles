@@ -3,7 +3,6 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use reqwest::Client;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 use syncfiles_models::{compute_checksum, compute_path_hash, now_ms};
@@ -14,6 +13,7 @@ struct Args {
     email: String,
     password: String,
     device_id: String,
+    #[allow(dead_code)]
     sync_root: PathBuf,
     command: String,
     arg1: String,

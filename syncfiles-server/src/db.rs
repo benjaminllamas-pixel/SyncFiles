@@ -92,6 +92,14 @@ pub async fn init_db(pool: &SqlitePool) -> Result<()> {
             let _ = sqlx::query(stmt).execute(pool).await;
         }
     }
+    let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+        .fetch_one(pool)
+        .await?;
+    if integrity != "ok" {
+        tracing::error!("Database integrity check failed: {}", integrity);
+    } else {
+        tracing::info!("Database integrity check passed");
+    }
     backfill_change_log(pool).await?;
     Ok(())
 }
@@ -127,6 +135,7 @@ async fn backfill_change_log(pool: &SqlitePool) -> Result<()> {
 }
 
 /// Anexa una entrada al change_log y devuelve el seq asignado.
+#[allow(clippy::too_many_arguments)]
 pub async fn append_change_log(
     pool: &SqlitePool,
     user_id: &str,
@@ -170,6 +179,7 @@ pub async fn get_changes_since(
     exclude_device: &str,
     limit: i64,
 ) -> Result<Vec<(i64, ChangeEntry)>> {
+    #[allow(clippy::type_complexity)]
     let rows: Vec<(i64, String, String, String, String, Option<String>, Option<String>, String, Option<i64>, i64)> =
         sqlx::query_as(
             "SELECT seq, file_id, operation, path_hash, checksum, relative_path, old_path, device_id, size_bytes, modified_at

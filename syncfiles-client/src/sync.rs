@@ -39,6 +39,7 @@ pub struct SyncEngine {
     client: Arc<SyncClient>,
     store: Arc<Mutex<MetadataStore>>,
     paused: std::sync::atomic::AtomicBool,
+    #[allow(dead_code)]
     wakeup_rx: tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<()>>>,
 }
 
@@ -227,9 +228,9 @@ impl SyncEngine {
             match change.operation.as_str() {
                 "upload" => {
                     if let Some(content) = &change.content {
-                        self.apply_download(&change, content).await?;
+                        self.apply_download(change, content).await?;
                     } else {
-                        self.download_remote_file(&session, change).await?;
+                        self.download_remote_file(session, change).await?;
                     }
                 }
                 "delete" => {
@@ -242,7 +243,7 @@ impl SyncEngine {
                     // Copiar no invalida la ruta original; descargar el contenido
                     // destino exige conocer el nuevo path, que la diff no incluye.
                     // Se descarga por path_hash como fallback.
-                    self.download_remote_file(&session, change).await?;
+                    self.download_remote_file(session, change).await?;
                 }
                 _ => {
                     info!("Operación remota no implementada: {}", change.operation);

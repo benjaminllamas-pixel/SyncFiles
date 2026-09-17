@@ -9,7 +9,7 @@ use actix_web::{get, web, HttpRequest, HttpResponse, HttpMessage, Result as Acti
 
 use crate::state::AppState;
 
-#[get("/health/live")]
+#[get("/live")]
 pub async fn liveness() -> ActixResult<HttpResponse> {
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "alive",
@@ -18,7 +18,7 @@ pub async fn liveness() -> ActixResult<HttpResponse> {
     })))
 }
 
-#[get("/health/ready")]
+#[get("/ready")]
 pub async fn readiness(
     state: web::Data<Arc<AppState>>,
     req: HttpRequest,
@@ -33,13 +33,22 @@ pub async fn readiness(
     let db_ok = state.pool.acquire().await.is_ok();
 
     // Chequeo storage: escribir y borrar un archivo de healthcheck.
-    // Usamos un user_id con formato válido pero que no afecte a los datos reales.
-    let storage_ok = match state.storage.write("__healthcheck__", "ping.txt", b"ping").await {
-        Ok(()) => {
-            let _ = state.storage.delete("__healthcheck__", "ping.txt").await;
-            true
+    // Opcional via SF_HEALTH_PROBE_WRITE=0 (para CI donde storage puede no
+    // tener permisos de escritura).
+    let write_probe = std::env::var("SF_HEALTH_PROBE_WRITE")
+        .ok()
+        .map(|v| v != "0" && v.to_lowercase() != "false")
+        .unwrap_or(true);
+    let storage_ok = if write_probe {
+        match state.storage.write("__healthcheck__", "ping.txt", b"ping").await {
+            Ok(()) => {
+                let _ = state.storage.delete("__healthcheck__", "ping.txt").await;
+                true
+            }
+            Err(_) => false,
         }
-        Err(_) => false,
+    } else {
+        true
     };
 
     if db_ok && storage_ok {

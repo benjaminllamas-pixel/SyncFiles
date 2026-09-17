@@ -6,7 +6,7 @@ use std::time::Duration;
 use tracing::info;
 use uuid::Uuid;
 
-use syncfiles_models::{ApiResponse, ApiError, LoginResponse, DiffResponse, ChangeEntry, UploadRequest, DeleteRequest, DownloadRequest, ResolveConflictRequest, DownloadResponse};
+use syncfiles_models::{ApiResponse, ApiError, LoginResponse, DiffResponse, UploadRequest, DeleteRequest, ResolveConflictRequest, DownloadResponse};
 
 #[derive(Debug, Clone)]
 pub struct SyncClient {
@@ -148,7 +148,7 @@ impl SyncClient {
         }
 
         let result: ApiResponse<()> = serde_json::from_str(&text)
-            .with_context(|| format!("Failed to parse response from /api/v1/sync/upload"))?;
+            .with_context(|| "Failed to parse response from /api/v1/sync/upload".to_string())?;
         info!("POST /api/v1/sync/upload -> OK");
         Ok(result)
     }

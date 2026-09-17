@@ -55,13 +55,17 @@ pub async fn trace_context(
 /// Límite configurable vía `SF_RATE_LIMIT_RPS` (default 60) y
 /// `SF_RATE_LIMIT_BURST` (default 120). Para despliegues multi-instancia
 /// usar Redis; en V1 la memoria es suficiente para un único node.
-pub struct RateLimiter {
+pub trait RateLimiter: Send + Sync {
+    fn allow(&self, key: &str) -> bool;
+}
+
+pub struct InMemoryRateLimiter {
     rps: u64,
     burst: u64,
     state: Mutex<HashMap<String, (u64, Instant)>>,
 }
 
-impl RateLimiter {
+impl InMemoryRateLimiter {
     pub fn new(rps: u64, burst: u64) -> Self {
         Self {
             rps,
@@ -69,8 +73,10 @@ impl RateLimiter {
             state: Mutex::new(HashMap::new()),
         }
     }
+}
 
-    pub fn allow(&self, key: &str) -> bool {
+impl RateLimiter for InMemoryRateLimiter {
+    fn allow(&self, key: &str) -> bool {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap();
         let (count, last) = state.entry(key.to_string()).or_insert((0, now));
@@ -89,17 +95,51 @@ impl RateLimiter {
     }
 }
 
+/// Stub de Redis rate limiter. En V1 no conecta a Redis real; simula
+/// allow-all para que el server arranque sin infraestructura externa.
+pub struct RedisRateLimiter;
+
+impl Default for RedisRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RedisRateLimiter {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl RateLimiter for RedisRateLimiter {
+    fn allow(&self, _key: &str) -> bool {
+        tracing::warn!("RedisRateLimiter es un stub: allow-all");
+        true
+    }
+}
+
 /// Helper: construir el RateLimiter a partir de variables de entorno.
-pub fn build_rate_limiter() -> Arc<RateLimiter> {
-    let rps = std::env::var("SF_RATE_LIMIT_RPS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(60);
-    let burst = std::env::var("SF_RATE_LIMIT_BURST")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(120);
-    Arc::new(RateLimiter::new(rps, burst))
+/// `SF_RATELIMITER_BACKEND=redis|memory` (default: memory).
+pub fn build_rate_limiter() -> Arc<dyn RateLimiter> {
+    let backend = std::env::var("SF_RATELIMITER_BACKEND")
+        .unwrap_or_else(|_| "memory".to_string());
+    match backend.as_str() {
+        "redis" => {
+            tracing::info!("RateLimiter: usando backend Redis (stub)");
+            Arc::new(RedisRateLimiter::new())
+        }
+        _ => {
+            let rps = std::env::var("SF_RATE_LIMIT_RPS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(60);
+            let burst = std::env::var("SF_RATE_LIMIT_BURST")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(120);
+            Arc::new(InMemoryRateLimiter::new(rps, burst))
+        }
+    }
 }
 
 /// Closure para `from_fn`: aplica rate limiting a /api/ y /health/.
@@ -113,7 +153,7 @@ pub async fn rate_limit_middleware(
     }
 
     let limiter = req
-        .app_data::<Data<Arc<RateLimiter>>>()
+        .app_data::<Data<Arc<dyn RateLimiter>>>()
         .expect("RateLimiter debe estar en AppData")
         .as_ref()
         .clone();

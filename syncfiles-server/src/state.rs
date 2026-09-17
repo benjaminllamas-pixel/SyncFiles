@@ -11,6 +11,7 @@ pub struct AppState {
     pub config: Config,
     pub server_seq: Arc<std::sync::atomic::AtomicI64>,
     pub storage: Arc<dyn StorageProvider>,
+    pub last_backup: Arc<std::sync::RwLock<crate::backup::BackupInfo>>,
 }
 
 impl AppState {
@@ -25,7 +26,11 @@ impl AppState {
                 }
             }
         }
-        let mut connect_options = SqliteConnectOptions::from_str(&config.database_url)?;
+        let mut connect_options = SqliteConnectOptions::from_str(&config.database_url)?
+            .pragma("journal_mode", "WAL")
+            .pragma("foreign_keys", "ON")
+            .pragma("synchronous", "NORMAL")
+            .pragma("busy_timeout", "5000");
         if let Some(path) = config.database_url.strip_prefix("sqlite:") {
             if path != ":memory:" && !std::path::Path::new(path).exists() {
                 connect_options = connect_options.create_if_missing(true);
@@ -67,6 +72,7 @@ impl AppState {
             config: config.clone(),
             server_seq: Arc::new(std::sync::atomic::AtomicI64::new(seq)),
             storage,
+            last_backup: Arc::new(std::sync::RwLock::new(crate::backup::BackupInfo::default())),
         })
     }
 

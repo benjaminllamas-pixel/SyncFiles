@@ -32,14 +32,30 @@ async fn main() -> Result<()> {
     let app_state = Arc::new(AppState::new(&app_config).await?);
 
     // Ejecutar migraciones versionadas (idempotentes).
-    let migrations_dir = std::path::Path::new("./syncfiles-server/migrations");
+    // El path se resuelve desde el binario (no desde CWD) para que funcione
+    // independientemente del directorio actual.
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let migrations_dir = std::env::var("SF_MIGRATIONS_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| exe_dir.join("syncfiles-server/migrations"));
+    let migrations_dir = if migrations_dir.is_dir() {
+        migrations_dir
+    } else {
+        std::path::Path::new("./syncfiles-server/migrations").to_path_buf()
+    };
     if migrations_dir.is_dir() {
-        if let Err(e) = syncfiles_server::migrations::run_migrations(&app_state.pool, migrations_dir).await {
+        if let Err(e) = syncfiles_server::migrations::run_migrations(&app_state.pool, &migrations_dir).await {
             tracing::warn!("Migraciones fallaron (se continua con schema actual): {}", e);
         }
     }
 
     let rate_limiter = build_rate_limiter();
+
+    // Background jobs: cleanup, integrity, vacuum, prune.
+    syncfiles_server::jobs::spawn_background_jobs(app_state.pool.clone());
 
     tracing::info!("Servidor SyncFiles iniciado en {}", app_config.bind_address);
 
@@ -113,6 +129,10 @@ async fn main() -> Result<()> {
                 web::scope("/health")
                     .service(syncfiles_server::health::liveness)
                     .service(syncfiles_server::health::readiness)
+            )
+            .service(
+                web::scope("/admin")
+                    .service(syncfiles_server::backup::backup_handler)
             )
             .service(web::redirect("/ui", "/"))
             .service(

@@ -1,12 +1,10 @@
 use anyhow::Result;
-use chrono::Utc;
 use tracing::{info, warn};
 use std::sync::{Arc, Mutex};
 
 use crate::network::SyncClient;
 use crate::metadata::MetadataStore;
 use crate::metadata::Session;
-use crate::metadata::SessionRecord;
 
 pub struct AuthService {
     client: Arc<SyncClient>,
