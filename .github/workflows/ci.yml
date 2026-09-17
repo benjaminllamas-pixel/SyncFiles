@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (check + test + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cargo check (server + client + cli)
+        run: |
+          cargo check --manifest-path syncfiles-server/Cargo.toml --all-targets
+          cargo check --manifest-path syncfiles-client/Cargo.toml --all-targets
+          cargo check --manifest-path syncfiles-cli/Cargo.toml --all-targets
+
+      - name: Cargo test (models)
+        run: cargo test --manifest-path syncfiles-models/Cargo.toml
+
+      - name: Cargo test (server)
+        run: SF_HEALTH_PROBE_WRITE=0 cargo test --manifest-path syncfiles-server/Cargo.toml
+
+      - name: Cargo test (client, single-threaded: tests mutan env vars)
+        run: cargo test --manifest-path syncfiles-client/Cargo.toml -- --test-threads=1
+
+      - name: Cargo clippy (server, no warnings)
+        run: cargo clippy --manifest-path syncfiles-server/Cargo.toml --all-targets -- -D warnings
+
+      - name: Cargo clippy (client, no warnings)
+        run: cargo clippy --manifest-path syncfiles-client/Cargo.toml --all-targets -- -D warnings
+
+      - name: Cargo clippy (cli, no warnings)
+        run: cargo clippy --manifest-path syncfiles-cli/Cargo.toml --all-targets -- -D warnings
+
+      - name: Cargo clippy (models, no warnings)
+        run: cargo clippy --manifest-path syncfiles-models/Cargo.toml --all-targets -- -D warnings
+
+  android:
+    name: Android (assembleDebug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Gradle build (debug)
+        run: |
+          cd syncfiles-android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Subir APK artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncfiles-debug-apk
+          path: syncfiles-android/app/build/outputs/apk/debug/*.apk
+          retention-days: 7
