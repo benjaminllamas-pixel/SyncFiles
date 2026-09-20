@@ -4,8 +4,9 @@
 
 Esta capa define la protección de los datos en tránsito entre clientes y servidor de SyncFiles.
 
-La política de V1 es estricta y simple:
-- TLS 1.3 obligatorio,
+La política de V1 es estricta y simple para tráfico fuera del host:
+- TLS 1.3 obligatorio en el reverse proxy, balanceador o dominio público,
+- HTTP interno solo en loopback, Docker o LAN de pruebas,
 - autenticación de sesión por token,
 - validación de identidad del dispositivo,
 - checksum y verificación de integridad,

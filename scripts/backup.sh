@@ -38,6 +38,21 @@ BACKUP_PATH="${BACKUP_DIR}/${BACKUP_NAME}.tar.gz"
 
 mkdir -p "$BACKUP_DIR" "$(dirname "$SF_BACKUP_LOG")"
 
+checksum256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | tr -s ' ' | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | tr -s ' ' | cut -d' ' -f1
+    else
+        python3 - "$1" <<'PY'
+import hashlib
+import sys
+with open(sys.argv[1], "rb") as source:
+    print(hashlib.sha256(source.read()).hexdigest())
+PY
+    fi
+}
+
 log() {
     local level="$1"
     shift
@@ -62,7 +77,8 @@ if [[ -z "$DB_PATH" || ! -f "$DB_PATH" ]]; then
 else
     METADATA_BACKUP="${BACKUP_DIR}/metadata_${TIMESTAMP}.db"
     log INFO "VACUUM INTO: $DB_PATH → $METADATA_BACKUP"
-    sqlite3 "$DB_PATH" "VACUUM INTO '${METADATA_BACKUP}';" 2>&1 | tee -a "$SF_BACKUP_LOG" || {
+    SQL_METADATA_BACKUP="${METADATA_BACKUP//\'/\'\'}"
+    sqlite3 "$DB_PATH" "VACUUM INTO '${SQL_METADATA_BACKUP}';" 2>&1 | tee -a "$SF_BACKUP_LOG" || {
         log ERROR "VACUUM INTO falló"
         exit 1
     }
@@ -113,14 +129,16 @@ else
 fi
 
 # --- Paso 4: Checksum ---
-CHECKSUM="$(sha256sum "$BACKUP_PATH" | awk '{print $1}')"
+CHECKSUM="$(checksum256 "$BACKUP_PATH")"
 SIZE="$(stat -f%z "$BACKUP_PATH" 2>/dev/null || stat -c%s "$BACKUP_PATH" 2>/dev/null || echo 0)"
 log INFO "Checksum SHA256: $CHECKSUM"
+printf '%s  %s\n' "$CHECKSUM" "$(basename "$BACKUP_PATH")" > "$BACKUP_PATH.sha256"
 log INFO "Tamaño: $SIZE bytes"
 
 # --- Paso 5: Rotación ---
 log INFO "Rotación: eliminando backups > ${BACKUP_RETENTION_DAYS} días"
 find "$BACKUP_DIR" -name "backup_*.tar.gz" -mtime +"$BACKUP_RETENTION_DAYS" -delete 2>/dev/null || true
+find "$BACKUP_DIR" -name "backup_*.sha256" -mtime +"$BACKUP_RETENTION_DAYS" -delete 2>/dev/null || true
 find "$BACKUP_DIR" -name "metadata_*.db" -mtime +"$BACKUP_RETENTION_DAYS" -delete 2>/dev/null || true
 find "$BACKUP_DIR" -name "storage_*.tar.gz" -mtime +"$BACKUP_RETENTION_DAYS" -delete 2>/dev/null || true
 

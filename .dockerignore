@@ -1,0 +1,67 @@
+# SyncFiles — .dockerignore
+# Evita que artefactos de build, credenciales y datos locales lleguen a la imagen.
+
+# --- Rust build artifacts (nunca en la imagen) ---
+**/target/
+**/*.rs.bak
+
+# --- Credenciales y secrets (nunca en la imagen) ---
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/keystore.properties
+**/gradle.properties.local
+**/local.properties
+
+# --- Tokens y logs ---
+**/backup.log
+**/restores.log
+**/server.log
+**/*.log
+
+# --- Datos locales (SQLite, storage, backups) ---
+/data/
+/syncfiles-server/data/
+**/syncfiles.db
+**/syncfiles.db-*
+**/*.db-wal
+**/*.db-shm
+**/storage/
+
+# --- Android / Gradle (no se usa en el build del server) ---
+/syncfiles-android/
+
+# --- Editor / OS ---
+**/.DS_Store
+**/.idea/
+**/.vscode/
+**/*.swp
+**/.gradle/
+
+# --- Git (la imagen no necesita historial) ---
+.git/
+.gitignore
+.gitattributes
+
+# --- Documentación y planes (no afectan al runtime) ---
+/docs/
+/.kilo/
+/plan.md
+/README.md
+/CODEOWNERS
+/.github/
+
+# --- Artefactos de release ---
+/dist/
+**/*.apk
+**/*.app/
+**/*.dmg
+**/*.msi
+**/*.deb
+**/*.rpm
+**/*.tar.gz

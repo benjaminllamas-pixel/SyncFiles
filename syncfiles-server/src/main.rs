@@ -11,13 +11,16 @@
 
 use actix_files::Files;
 use actix_web::middleware::from_fn;
-use actix_web::web;
+use actix_web::web::{self, JsonConfig};
 use actix_web::{App, HttpServer};
 use anyhow::Result;
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-use syncfiles_server::middleware::{build_rate_limiter, no_cache_statics, content_type_middleware, rate_limit_middleware, trace_context};
+use syncfiles_server::middleware::{
+    body_limit_for, body_limit_middleware, build_rate_limiter, content_type_middleware,
+    no_cache_statics, path_validation_middleware, rate_limit_middleware, trace_context,
+};
 use syncfiles_server::state::AppState;
 
 #[actix_web::main]
@@ -25,7 +28,11 @@ async fn main() -> Result<()> {
     // Logging JSON estructurado (para correlacionar con request_id).
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout).json())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stdout)
+                .json(),
+        )
         .init();
 
     let app_config = syncfiles_server::config::Config::load()?;
@@ -47,8 +54,13 @@ async fn main() -> Result<()> {
         std::path::Path::new("./syncfiles-server/migrations").to_path_buf()
     };
     if migrations_dir.is_dir() {
-        if let Err(e) = syncfiles_server::migrations::run_migrations(&app_state.pool, &migrations_dir).await {
-            tracing::warn!("Migraciones fallaron (se continua con schema actual): {}", e);
+        if let Err(e) =
+            syncfiles_server::migrations::run_migrations(&app_state.pool, &migrations_dir).await
+        {
+            tracing::warn!(
+                "Migraciones fallaron (se continua con schema actual): {}",
+                e
+            );
         }
     }
 
@@ -93,47 +105,106 @@ async fn main() -> Result<()> {
             .wrap(from_fn(no_cache_statics))
             .wrap(from_fn(trace_context))
             .wrap(from_fn(content_type_middleware))
+            .wrap(from_fn(path_validation_middleware))
+            .wrap(from_fn(body_limit_middleware))
             .wrap(from_fn(rate_limit_middleware))
             .app_data(web::Data::new(rate_limiter))
             .app_data(web::Data::new(app_state.clone()))
             .app_data(web::Data::new(max_upload_bytes))
+            .app_data(web::Data::new(
+                JsonConfig::default().limit(body_limit_for(max_upload_bytes)),
+            ))
             .service(
                 web::scope("/api/v1")
-                    .route("/auth/login", web::post().to(syncfiles_server::handlers::login_handler))
-                    .route("/auth/logout", web::post().to(syncfiles_server::handlers::logout_handler))
-                    .route("/session/status", web::get().to(syncfiles_server::handlers::session_status_handler))
-                    .route("/sync/diff", web::post().to(syncfiles_server::handlers::diff_handler))
-                    .route("/sync/upload", web::post().to(syncfiles_server::handlers::upload_handler))
-                    .route("/sync/download", web::post().to(syncfiles_server::handlers::download_handler))
-                    .route("/sync/delete", web::post().to(syncfiles_server::handlers::delete_handler))
-                    .route("/sync/rename", web::post().to(syncfiles_server::handlers::rename_handler))
-                    .route("/sync/move", web::post().to(syncfiles_server::handlers::move_handler))
-                    .route("/sync/copy", web::post().to(syncfiles_server::handlers::copy_handler))
-                    .route("/files/list", web::get().to(syncfiles_server::handlers::files_list_handler))
-                    .route("/queue", web::get().to(syncfiles_server::handlers::queue_handler))
-                    .route("/activity", web::get().to(syncfiles_server::handlers::activity_handler))
-                    .route("/conflicts", web::get().to(syncfiles_server::handlers::conflicts_handler))
-                    .route("/devices", web::get().to(syncfiles_server::handlers::devices_handler))
-                    .route("/devices/revoke", web::post().to(syncfiles_server::handlers::revoke_device_handler))
-                    .route("/storage/stats", web::get().to(syncfiles_server::handlers::storage_stats_handler))
-                    .route("/conflicts/resolve", web::post().to(syncfiles_server::handlers::resolve_conflict_handler))
-                    .route("/openapi", web::get().to(|| async {
-                        let content = include_str!("../docs/openapi.md");
-                        actix_web::HttpResponse::Ok()
-                            .content_type("text/markdown; charset=utf-8")
-                            .body(content)
-                    }))
-                    .default_service(web::route().to(syncfiles_server::handlers::not_found))
+                    .route(
+                        "/auth/login",
+                        web::post().to(syncfiles_server::handlers::login_handler),
+                    )
+                    .route(
+                        "/auth/logout",
+                        web::post().to(syncfiles_server::handlers::logout_handler),
+                    )
+                    .route(
+                        "/session/status",
+                        web::get().to(syncfiles_server::handlers::session_status_handler),
+                    )
+                    .route(
+                        "/sync/diff",
+                        web::post().to(syncfiles_server::handlers::diff_handler),
+                    )
+                    .route(
+                        "/sync/upload",
+                        web::post().to(syncfiles_server::handlers::upload_handler),
+                    )
+                    .route(
+                        "/sync/download",
+                        web::post().to(syncfiles_server::handlers::download_handler),
+                    )
+                    .route(
+                        "/sync/delete",
+                        web::post().to(syncfiles_server::handlers::delete_handler),
+                    )
+                    .route(
+                        "/sync/rename",
+                        web::post().to(syncfiles_server::handlers::rename_handler),
+                    )
+                    .route(
+                        "/sync/move",
+                        web::post().to(syncfiles_server::handlers::move_handler),
+                    )
+                    .route(
+                        "/sync/copy",
+                        web::post().to(syncfiles_server::handlers::copy_handler),
+                    )
+                    .route(
+                        "/files/list",
+                        web::get().to(syncfiles_server::handlers::files_list_handler),
+                    )
+                    .route(
+                        "/queue",
+                        web::get().to(syncfiles_server::handlers::queue_handler),
+                    )
+                    .route(
+                        "/activity",
+                        web::get().to(syncfiles_server::handlers::activity_handler),
+                    )
+                    .route(
+                        "/conflicts",
+                        web::get().to(syncfiles_server::handlers::conflicts_handler),
+                    )
+                    .route(
+                        "/devices",
+                        web::get().to(syncfiles_server::handlers::devices_handler),
+                    )
+                    .route(
+                        "/devices/revoke",
+                        web::post().to(syncfiles_server::handlers::revoke_device_handler),
+                    )
+                    .route(
+                        "/storage/stats",
+                        web::get().to(syncfiles_server::handlers::storage_stats_handler),
+                    )
+                    .route(
+                        "/conflicts/resolve",
+                        web::post().to(syncfiles_server::handlers::resolve_conflict_handler),
+                    )
+                    .route(
+                        "/openapi",
+                        web::get().to(|| async {
+                            let content = include_str!("../docs/openapi.md");
+                            actix_web::HttpResponse::Ok()
+                                .content_type("text/markdown; charset=utf-8")
+                                .body(content)
+                        }),
+                    )
+                    .default_service(web::route().to(syncfiles_server::handlers::not_found)),
             )
             .service(
                 web::scope("/health")
                     .service(syncfiles_server::health::liveness)
-                    .service(syncfiles_server::health::readiness)
+                    .service(syncfiles_server::health::readiness),
             )
-            .service(
-                web::scope("/admin")
-                    .service(syncfiles_server::backup::backup_handler)
-            )
+            .service(web::scope("/admin").service(syncfiles_server::backup::backup_handler))
             .service(web::redirect("/ui", "/"))
             .service(
                 Files::new("/", &static_dir)

@@ -1,11 +1,13 @@
 use actix_http::Request;
 use actix_web::body::BoxBody;
 use actix_web::dev::{Service, ServiceResponse};
+use actix_web::middleware::from_fn;
 use actix_web::{test, web, App};
 use base64::Engine;
 use serde_json::Value;
 use std::sync::Arc;
 use syncfiles_server::handlers;
+use syncfiles_server::middleware::{body_limit_middleware, path_validation_middleware};
 use syncfiles_server::state::AppState;
 
 const EMAIL: &str = "test@syncfiles.local";
@@ -33,15 +35,21 @@ async fn setup() -> Arc<AppState> {
 
 async fn make_app(
     state: Arc<AppState>,
-) -> impl Service<Request, Response = ServiceResponse<actix_web::body::EitherBody<BoxBody>>, Error = actix_web::Error> {
+) -> impl Service<Request, Response = ServiceResponse<BoxBody>, Error = actix_web::Error> {
     test::init_service(
         App::new()
             .wrap(actix_cors::Cors::permissive())
+            .wrap(from_fn(path_validation_middleware))
+            .wrap(from_fn(body_limit_middleware))
             .app_data(web::Data::new(state))
-             .service(
+            .app_data(web::Data::new(104_857_600usize))
+            .service(
                 web::scope("/api/v1")
                     .route("/auth/login", web::post().to(handlers::login_handler))
-                    .route("/session/status", web::get().to(handlers::session_status_handler))
+                    .route(
+                        "/session/status",
+                        web::get().to(handlers::session_status_handler),
+                    )
                     .route("/sync/diff", web::post().to(handlers::diff_handler))
                     .route("/sync/upload", web::post().to(handlers::upload_handler))
                     .route("/sync/download", web::post().to(handlers::download_handler))
@@ -54,15 +62,24 @@ async fn make_app(
                     .route("/activity", web::get().to(handlers::activity_handler))
                     .route("/conflicts", web::get().to(handlers::conflicts_handler))
                     .route("/devices", web::get().to(handlers::devices_handler))
-                    .route("/devices/revoke", web::post().to(handlers::revoke_device_handler))
-                    .route("/storage/stats", web::get().to(handlers::storage_stats_handler))
-                    .route("/conflicts/resolve", web::post().to(handlers::resolve_conflict_handler))
-                    .default_service(web::route().to(handlers::not_found))
+                    .route(
+                        "/devices/revoke",
+                        web::post().to(handlers::revoke_device_handler),
+                    )
+                    .route(
+                        "/storage/stats",
+                        web::get().to(handlers::storage_stats_handler),
+                    )
+                    .route(
+                        "/conflicts/resolve",
+                        web::post().to(handlers::resolve_conflict_handler),
+                    )
+                    .default_service(web::route().to(handlers::not_found)),
             )
             .service(
                 web::scope("/health")
                     .service(syncfiles_server::health::liveness)
-                    .service(syncfiles_server::health::readiness)
+                    .service(syncfiles_server::health::readiness),
             ),
     )
     .await
@@ -70,7 +87,7 @@ async fn make_app(
 
 async fn login<S>(app: &S) -> String
 where
-    S: Service<Request, Response = ServiceResponse<actix_web::body::EitherBody<BoxBody>>, Error = actix_web::Error>,
+    S: Service<Request, Response = ServiceResponse<BoxBody>, Error = actix_web::Error>,
 {
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/login")
@@ -86,7 +103,7 @@ where
 
 async fn upload<S>(app: &S, token: &str, path: &str, content: &str) -> Value
 where
-    S: Service<Request, Response = ServiceResponse<actix_web::body::EitherBody<BoxBody>>, Error = actix_web::Error>,
+    S: Service<Request, Response = ServiceResponse<BoxBody>, Error = actix_web::Error>,
 {
     let checksum = syncfiles_models::compute_checksum(content.as_bytes());
     let req = test::TestRequest::post()
@@ -127,7 +144,10 @@ async fn files_list_returns_uploaded_files() {
     let resp: Value = test::call_and_read_body_json(&app, req).await;
 
     assert_eq!(resp["total"], 2);
-    let paths: Vec<&str> = resp["files"].as_array().unwrap().iter()
+    let paths: Vec<&str> = resp["files"]
+        .as_array()
+        .unwrap()
+        .iter()
         .map(|f| f["relative_path"].as_str().unwrap())
         .collect();
     assert!(paths.contains(&"docs/readme.txt"));
@@ -139,7 +159,9 @@ async fn files_list_requires_auth() {
     let state = setup().await;
     let app = make_app(state).await;
 
-    let req = test::TestRequest::get().uri("/api/v1/files/list").to_request();
+    let req = test::TestRequest::get()
+        .uri("/api/v1/files/list")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 401);
 }
@@ -150,20 +172,25 @@ async fn queue_returns_pending_ops() {
     let app = make_app(state.clone()).await;
     let token = login(&app).await;
 
-    syncfiles_server::db::queue_op(&state.pool, &syncfiles_models::SyncQueueEntry {
-        queue_id: syncfiles_models::uuid_str(),
-        file_id: "file-1".to_string(),
-        user_id: USER_ID.to_string(),
-        device_id: DEVICE_ID.to_string(),
-        operation: "upload".to_string(),
-        status: "queued".to_string(),
-        attempts: 0,
-        idempotency_key: syncfiles_models::uuid_str(),
-        payload_json: None,
-        created_at: syncfiles_models::now_ms(),
-        updated_at: syncfiles_models::now_ms(),
-        last_error: None,
-    }).await.unwrap();
+    syncfiles_server::db::queue_op(
+        &state.pool,
+        &syncfiles_models::SyncQueueEntry {
+            queue_id: syncfiles_models::uuid_str(),
+            file_id: "file-1".to_string(),
+            user_id: USER_ID.to_string(),
+            device_id: DEVICE_ID.to_string(),
+            operation: "upload".to_string(),
+            status: "queued".to_string(),
+            attempts: 0,
+            idempotency_key: syncfiles_models::uuid_str(),
+            payload_json: None,
+            created_at: syncfiles_models::now_ms(),
+            updated_at: syncfiles_models::now_ms(),
+            last_error: None,
+        },
+    )
+    .await
+    .unwrap();
 
     let req = auth_get(&token, "/api/v1/queue").to_request();
     let resp: Value = test::call_and_read_body_json(&app, req).await;
@@ -180,20 +207,25 @@ async fn queue_filters_by_device_and_pending_status() {
     let token = login(&app).await;
 
     for (device, status) in [("device-a", "queued"), ("device-b", "done")] {
-        syncfiles_server::db::queue_op(&state.pool, &syncfiles_models::SyncQueueEntry {
-            queue_id: syncfiles_models::uuid_str(),
-            file_id: format!("file-{}", device),
-            user_id: USER_ID.to_string(),
-            device_id: device.to_string(),
-            operation: "upload".to_string(),
-            status: status.to_string(),
-            attempts: 0,
-            idempotency_key: syncfiles_models::uuid_str(),
-            payload_json: None,
-            created_at: syncfiles_models::now_ms(),
-            updated_at: syncfiles_models::now_ms(),
-            last_error: None,
-        }).await.unwrap();
+        syncfiles_server::db::queue_op(
+            &state.pool,
+            &syncfiles_models::SyncQueueEntry {
+                queue_id: syncfiles_models::uuid_str(),
+                file_id: format!("file-{}", device),
+                user_id: USER_ID.to_string(),
+                device_id: device.to_string(),
+                operation: "upload".to_string(),
+                status: status.to_string(),
+                attempts: 0,
+                idempotency_key: syncfiles_models::uuid_str(),
+                payload_json: None,
+                created_at: syncfiles_models::now_ms(),
+                updated_at: syncfiles_models::now_ms(),
+                last_error: None,
+            },
+        )
+        .await
+        .unwrap();
     }
 
     let req = auth_get(&token, "/api/v1/queue?device_id=device-a").to_request();
@@ -205,7 +237,9 @@ async fn queue_filters_by_device_and_pending_status() {
     let resp: Value = test::call_and_read_body_json(&app, req).await;
     let entries = resp["entries"].as_array().unwrap();
     assert!(!entries.is_empty());
-    assert!(entries.iter().all(|e| e["status"] == "queued" || e["status"] == "retry"));
+    assert!(entries
+        .iter()
+        .all(|e| e["status"] == "queued" || e["status"] == "retry"));
 }
 
 #[actix_web::test]
@@ -221,7 +255,9 @@ async fn activity_returns_audit_events() {
 
     assert!(resp["total"].as_i64().unwrap() > 0);
     let events = resp["events"].as_array().unwrap();
-    assert!(events.iter().any(|e| e["event_name"] == "auth.login_success"));
+    assert!(events
+        .iter()
+        .any(|e| e["event_name"] == "auth.login_success"));
 }
 
 #[actix_web::test]
@@ -241,11 +277,19 @@ async fn conflicts_returns_unresolved_only() {
         conflict_type: "checksum_mismatch".to_string(),
         strategy: "last_write_wins".to_string(),
         created_at: syncfiles_models::now_ms(),
-        resolved_at: if resolved { Some(syncfiles_models::now_ms()) } else { None },
+        resolved_at: if resolved {
+            Some(syncfiles_models::now_ms())
+        } else {
+            None
+        },
         resolved_by: None,
     };
-    syncfiles_server::db::mark_conflict(&state.pool, &mk_conflict(false)).await.unwrap();
-    syncfiles_server::db::mark_conflict(&state.pool, &mk_conflict(true)).await.unwrap();
+    syncfiles_server::db::mark_conflict(&state.pool, &mk_conflict(false))
+        .await
+        .unwrap();
+    syncfiles_server::db::mark_conflict(&state.pool, &mk_conflict(true))
+        .await
+        .unwrap();
 
     let req = auth_get(&token, "/api/v1/conflicts").to_request();
     let resp: Value = test::call_and_read_body_json(&app, req).await;
@@ -265,7 +309,9 @@ async fn devices_lists_user_devices_with_sessions() {
 
     assert!(resp["total"].as_i64().unwrap() >= 1);
     let devices = resp["devices"].as_array().unwrap();
-    assert!(devices.iter().any(|d| d["device_id"] == DEVICE_ID && d["active_sessions"].as_i64().unwrap() >= 1));
+    assert!(devices
+        .iter()
+        .any(|d| d["device_id"] == DEVICE_ID && d["active_sessions"].as_i64().unwrap() >= 1));
 }
 
 #[actix_web::test]
@@ -290,7 +336,14 @@ async fn new_endpoints_reject_bad_tokens() {
     let state = setup().await;
     let app = make_app(state).await;
 
-    for uri in ["/api/v1/files/list", "/api/v1/queue", "/api/v1/activity", "/api/v1/conflicts", "/api/v1/devices", "/api/v1/storage/stats"] {
+    for uri in [
+        "/api/v1/files/list",
+        "/api/v1/queue",
+        "/api/v1/activity",
+        "/api/v1/conflicts",
+        "/api/v1/devices",
+        "/api/v1/storage/stats",
+    ] {
         let req = auth_get("token-invalido", uri).to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401, "esperaba 401 para {}", uri);
@@ -339,7 +392,10 @@ async fn upload_binary_content_round_trips_via_download() {
 
     let files_req = auth_get(&token, "/api/v1/files/list").to_request();
     let files: Value = test::call_and_read_body_json(&app, files_req).await;
-    let entry = files["files"].as_array().unwrap().iter()
+    let entry = files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|f| f["relative_path"] == "bin/blob.dat")
         .expect("archivo subido debe aparecer en files/list");
     let file_id = entry["file_id"].as_str().unwrap().to_string();
@@ -358,8 +414,13 @@ async fn upload_binary_content_round_trips_via_download() {
         .to_request();
     let dl: Value = test::call_and_read_body_json(&app, dl_req).await;
     let b64 = dl["content"].as_str().unwrap();
-    let decoded = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
-    assert_eq!(decoded, content, "el binario debe sobrevivir upload→download");
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .unwrap();
+    assert_eq!(
+        decoded, content,
+        "el binario debe sobrevivir upload→download"
+    );
 }
 
 #[actix_web::test]
@@ -374,10 +435,15 @@ async fn rename_moves_file_path() {
         let req = auth_get(&token, "/api/v1/files/list").to_request();
         test::call_and_read_body_json(&app, req).await
     };
-    let file_id = files["files"].as_array().unwrap().iter()
+    let file_id = files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|f| f["relative_path"] == "docs/viejo.txt")
-        .expect("archivo")
-        ["file_id"].as_str().unwrap().to_string();
+        .expect("archivo")["file_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let req = test::TestRequest::post()
         .uri("/api/v1/sync/rename")
@@ -398,11 +464,22 @@ async fn rename_moves_file_path() {
         let req = auth_get(&token, "/api/v1/files/list").to_request();
         test::call_and_read_body_json(&app, req).await
     };
-    let paths: Vec<&str> = files["files"].as_array().unwrap().iter()
+    let paths: Vec<&str> = files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
         .map(|f| f["relative_path"].as_str().unwrap())
         .collect();
-    assert!(paths.contains(&"docs/nuevo.txt"), "debe existir la ruta nueva: {:?}", paths);
-    assert!(!paths.contains(&"docs/viejo.txt"), "no debe existir la ruta vieja: {:?}", paths);
+    assert!(
+        paths.contains(&"docs/nuevo.txt"),
+        "debe existir la ruta nueva: {:?}",
+        paths
+    );
+    assert!(
+        !paths.contains(&"docs/viejo.txt"),
+        "no debe existir la ruta vieja: {:?}",
+        paths
+    );
 }
 
 #[actix_web::test]
@@ -416,10 +493,15 @@ async fn move_relocates_file_path() {
         let req = auth_get(&token, "/api/v1/files/list").to_request();
         test::call_and_read_body_json(&app, req).await
     };
-    let file_id = files["files"].as_array().unwrap().iter()
+    let file_id = files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|f| f["relative_path"] == "orig/a.txt")
-        .expect("archivo")
-        ["file_id"].as_str().unwrap().to_string();
+        .expect("archivo")["file_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let req = test::TestRequest::post()
         .uri("/api/v1/sync/move")
@@ -440,10 +522,17 @@ async fn move_relocates_file_path() {
         let req = auth_get(&token, "/api/v1/files/list").to_request();
         test::call_and_read_body_json(&app, req).await
     };
-    let paths: Vec<&str> = files["files"].as_array().unwrap().iter()
+    let paths: Vec<&str> = files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
         .map(|f| f["relative_path"].as_str().unwrap())
         .collect();
-    assert!(paths.contains(&"dest/deep/b.txt"), "debe existir la ruta movida: {:?}", paths);
+    assert!(
+        paths.contains(&"dest/deep/b.txt"),
+        "debe existir la ruta movida: {:?}",
+        paths
+    );
 }
 
 #[actix_web::test]
@@ -457,10 +546,15 @@ async fn copy_creates_new_file_with_content() {
         let req = auth_get(&token, "/api/v1/files/list").to_request();
         test::call_and_read_body_json(&app, req).await
     };
-    let file_id = files["files"].as_array().unwrap().iter()
+    let file_id = files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|f| f["relative_path"] == "orig/copy-src.txt")
-        .expect("archivo")
-        ["file_id"].as_str().unwrap().to_string();
+        .expect("archivo")["file_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let req = test::TestRequest::post()
         .uri("/api/v1/sync/copy")
@@ -481,11 +575,18 @@ async fn copy_creates_new_file_with_content() {
         let req = auth_get(&token, "/api/v1/files/list").to_request();
         test::call_and_read_body_json(&app, req).await
     };
-    let dst = files["files"].as_array().unwrap().iter()
+    let dst = files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|f| f["relative_path"] == "copia/copy-dst.txt")
         .expect("copia creada");
     assert_eq!(dst["size_bytes"], "mundo".len() as i64);
-    assert_ne!(dst["file_id"].as_str().unwrap(), file_id, "la copia tiene file_id propio");
+    assert_ne!(
+        dst["file_id"].as_str().unwrap(),
+        file_id,
+        "la copia tiene file_id propio"
+    );
 }
 
 #[actix_web::test]
@@ -523,12 +624,15 @@ async fn diff_returns_changes_since_cursor() {
     // Desde 0, otro dispositivo ve el upload
     let resp: Value = test::call_and_read_body_json(&app, diff_req(0, "device-otro")).await;
     let changes = resp["changes"].as_array().unwrap();
-    assert!(changes.iter().any(|c| c["relative_path"] == "diff/a.txt" && c["operation"] == "upload"));
+    assert!(changes
+        .iter()
+        .any(|c| c["relative_path"] == "diff/a.txt" && c["operation"] == "upload"));
     let server_seq = resp["server_seq"].as_i64().unwrap();
     assert!(server_seq > 0);
 
     // Con cursor al día: no repite entradas ya vistas
-    let resp: Value = test::call_and_read_body_json(&app, diff_req(server_seq, "device-otro")).await;
+    let resp: Value =
+        test::call_and_read_body_json(&app, diff_req(server_seq, "device-otro")).await;
     assert!(resp["changes"].as_array().unwrap().is_empty());
     assert_eq!(resp["server_seq"].as_i64().unwrap(), server_seq);
 
@@ -548,10 +652,15 @@ async fn rename_and_copy_appear_in_diff_for_other_devices() {
         let req = auth_get(&token, "/api/v1/files/list").to_request();
         test::call_and_read_body_json(&app, req).await
     };
-    let file_id = files["files"].as_array().unwrap().iter()
+    let file_id = files["files"]
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|f| f["relative_path"] == "docs/viejo.txt")
-        .expect("archivo")
-        ["file_id"].as_str().unwrap().to_string();
+        .expect("archivo")["file_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let rename_req = test::TestRequest::post()
         .uri("/api/v1/sync/rename")
@@ -607,16 +716,24 @@ async fn rename_and_copy_appear_in_diff_for_other_devices() {
     let resp: Value = test::call_and_read_body_json(&app, req).await;
     let changes = resp["changes"].as_array().unwrap();
 
-    let rename = changes.iter().find(|c| c["operation"] == "rename")
+    let rename = changes
+        .iter()
+        .find(|c| c["operation"] == "rename")
         .expect("diff incluye rename");
     assert_eq!(rename["old_path"], "docs/viejo.txt");
     assert_eq!(rename["relative_path"], "docs/nuevo.txt");
     assert_eq!(rename["file_id"], file_id.as_str());
 
-    let copy = changes.iter().find(|c| c["operation"] == "copy")
+    let copy = changes
+        .iter()
+        .find(|c| c["operation"] == "copy")
         .expect("diff incluye copy");
     assert_eq!(copy["relative_path"], "docs/copia.txt");
-    assert_ne!(copy["file_id"].as_str().unwrap(), file_id, "copy reporta el file_id nuevo");
+    assert_ne!(
+        copy["file_id"].as_str().unwrap(),
+        file_id,
+        "copy reporta el file_id nuevo"
+    );
 }
 
 #[actix_web::test]
@@ -653,7 +770,10 @@ async fn revoke_device_revokes_other_device_sessions() {
         let req = auth_get(&token_a, "/api/v1/devices").to_request();
         test::call_and_read_body_json(&app, req).await
     };
-    let dev_b = devices["devices"].as_array().unwrap().iter()
+    let dev_b = devices["devices"]
+        .as_array()
+        .unwrap()
+        .iter()
         .find(|d| d["device_id"] == "telefono-viejo")
         .expect("dispositivo B registrado");
     assert!(dev_b["active_sessions"].as_i64().unwrap() >= 1);
@@ -680,12 +800,20 @@ async fn revoke_device_revokes_other_device_sessions() {
     // La sesión A sigue viva
     let req = auth_get(&token_a, "/api/v1/files/list").to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200, "la sesión que revoca debe seguir activa");
+    assert_eq!(
+        resp.status(),
+        200,
+        "la sesión que revoca debe seguir activa"
+    );
 
     // El evento queda en la auditoría
     let req = auth_get(&token_a, "/api/v1/activity").to_request();
     let activity: Value = test::call_and_read_body_json(&app, req).await;
-    assert!(activity["events"].as_array().unwrap().iter().any(|e| e["event_name"] == "device.revoked"));
+    assert!(activity["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["event_name"] == "device.revoked"));
 }
 
 #[actix_web::test]
@@ -868,7 +996,10 @@ async fn upload_rejects_traversal_and_absolute_paths() {
     };
     for f in listing["files"].as_array().unwrap() {
         let path = f["relative_path"].as_str().unwrap_or("");
-        assert!(!path.contains(".."), "ningún path con .. en el listado: {path}");
+        assert!(
+            !path.contains(".."),
+            "ningún path con .. en el listado: {path}"
+        );
     }
 }
 
@@ -929,6 +1060,101 @@ async fn content_type_middleware_rejects_non_json() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn content_type_middleware_rejects_missing_json_header() {
+    use syncfiles_server::middleware::content_type_middleware;
+
+    let app = test::init_service(
+        App::new()
+            .wrap(from_fn(content_type_middleware))
+            .route("/api/v1/ping", web::post().to(|| async { "pong" })),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/ping")
+        .set_payload("{}")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 415);
+}
+
+#[actix_web::test]
+async fn path_validation_middleware_rejects_encoded_traversal() {
+    let app = test::init_service(
+        App::new()
+            .wrap(from_fn(path_validation_middleware))
+            .route("/api/v1/ping", web::post().to(|| async { "pong" })),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/%2e%2e/admin")
+        .insert_header(("Content-Type", "application/json"))
+        .set_payload("{}")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "INVALID_PATH");
+}
+
+#[actix_web::test]
+async fn body_limit_middleware_rejects_oversized_payload() {
+    let app = test::init_service(
+        App::new()
+            .wrap(from_fn(path_validation_middleware))
+            .wrap(from_fn(body_limit_middleware))
+            .app_data(web::Data::new(0usize))
+            .route("/api/v1/ping", web::post().to(|| async { "pong" })),
+    )
+    .await;
+
+    let payload = format!("{{\"value\":\"{}\"}}", "x".repeat(1_048_600));
+    let req = test::TestRequest::post()
+        .uri("/api/v1/ping")
+        .insert_header(("Content-Type", "application/json"))
+        .set_payload(payload)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 413);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "PAYLOAD_TOO_LARGE");
+}
+
+#[actix_web::test]
+async fn body_limit_middleware_rejects_invalid_upload_structure() {
+    let app = test::init_service(
+        App::new()
+            .wrap(from_fn(path_validation_middleware))
+            .wrap(from_fn(body_limit_middleware))
+            .app_data(web::Data::new(104_857_600usize))
+            .route("/api/v1/sync/upload", web::post().to(|| async { "ok" })),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/upload")
+        .insert_header(("Content-Type", "application/json"))
+        .set_json(serde_json::json!({
+            "session_id": "session",
+            "device_id": "device",
+            "file_id": "",
+            "relative_path": "../secret.txt",
+            "path_hash": "a".repeat(64),
+            "checksum": "b".repeat(64),
+            "size_bytes": 1,
+            "modified_at": 1,
+            "idempotency_key": "key",
+            "content": "eA==",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "INVALID_PATH", "{body}");
 }
 
 // ===== Health check tests (A-11) =====

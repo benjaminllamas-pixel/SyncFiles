@@ -1,10 +1,10 @@
 use anyhow::Result;
-use tracing::{info, warn};
 use std::sync::{Arc, Mutex};
+use tracing::{info, warn};
 
-use crate::network::SyncClient;
 use crate::metadata::MetadataStore;
 use crate::metadata::Session;
+use crate::network::SyncClient;
 
 pub struct AuthService {
     client: Arc<SyncClient>,
@@ -34,7 +34,11 @@ impl AuthService {
     pub async fn login(&self) -> Result<()> {
         let (email, password, device_id) = {
             let store = self.store.lock().unwrap();
-            (store.config.email.clone(), store.config.password.clone(), store.config.device_id.clone())
+            (
+                store.config.email.clone(),
+                store.config.password.clone(),
+                store.config.device_id.clone(),
+            )
         };
         let resp = self.client.login(&email, &password, &device_id).await?;
         let session = Session {

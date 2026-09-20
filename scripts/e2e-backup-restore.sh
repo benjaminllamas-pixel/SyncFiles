@@ -22,6 +22,38 @@ BACKUP_DIR="$WORKDIR/backups"
 EMAIL="admin@syncfiles.local"
 PASSWORD="syncfiles"
 DEVICE_ID="e2e-backup"
+SERVER_PID=""
+
+cleanup() {
+    if [ -n "$SERVER_PID" ]; then
+        kill "$SERVER_PID" 2>/dev/null || true
+        wait "$SERVER_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+checksum256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | tr -s ' ' | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | tr -s ' ' | cut -d' ' -f1
+    else
+        python3 - "$1" <<'PY'
+import hashlib
+import sys
+with open(sys.argv[1], "rb") as source:
+    print(hashlib.sha256(source.read()).hexdigest())
+PY
+    fi
+}
+
+idempotency_key() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen
+    else
+        python3 -c 'import uuid; print(uuid.uuid4())'
+    fi
+}
 
 echo "=== SyncFiles E2E Backup & Restore Test ==="
 
@@ -76,8 +108,8 @@ if ! echo "$UPLOAD_RESP2" | grep -q '"status":"ok"'; then
 fi
 
 # Compute checksums of original files
-CHECKSUM1=$(sha256sum "$WORKDIR/test1.txt" | awk '{print $1}')
-CHECKSUM2=$(sha256sum "$WORKDIR/test2.bin" | awk '{print $1}')
+CHECKSUM1=$(checksum256 "$WORKDIR/test1.txt")
+CHECKSUM2=$(checksum256 "$WORKDIR/test2.bin")
 echo "      Upload OK (checksums: $CHECKSUM1, $CHECKSUM2)"
 
 # List files to get file_ids
@@ -112,7 +144,7 @@ if [ -z "$BACKUP_FILE" ]; then
     echo "FAIL: No se encontró backup_*.tar.gz"
     exit 1
 fi
-BACKUP_CHECKSUM=$(sha256sum "$BACKUP_FILE" | awk '{print $1}')
+BACKUP_CHECKSUM=$(checksum256 "$BACKUP_FILE")
 echo "      Backup: $BACKUP_FILE (sha256=$BACKUP_CHECKSUM)"
 
 # Step 3: Stop server, delete DB + storage
@@ -209,12 +241,12 @@ for f in data.get('files', []):
 
 curl -s -H "Authorization: Bearer $SESSION_ID" "$SERVER_URL/api/v1/sync/download" \
     -H "Content-Type: application/json" \
-    -d "{\"session_id\":\"$SESSION_ID\",\"device_id\":\"$DEVICE_ID\",\"file_id\":\"$FILE_ID1\",\"path_hash\":\"\",\"idempotency_key\":\"$(uuidgen)\"}" > "$WORKDIR/dl1.json"
+    -d "{\"session_id\":\"$SESSION_ID\",\"device_id\":\"$DEVICE_ID\",\"file_id\":\"$FILE_ID1\",\"path_hash\":\"\",\"idempotency_key\":\"$(idempotency_key)\"}" > "$WORKDIR/dl1.json"
 
 echo "$WORKDIR/dl1.json"
 DL1_B64=$(python3 -c "import json; print(json.load(open('$WORKDIR/dl1.json'))['content'])")
-DL1=$(echo "$DL1_B64" | base64 -d)
-DL1_CHECKSUM=$(echo -n "$DL1" | sha256sum | awk '{print $1}')
+python3 -c "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))" <<< "$DL1_B64" > "$WORKDIR/dl1.bin"
+DL1_CHECKSUM=$(checksum256 "$WORKDIR/dl1.bin")
 if [ "$DL1_CHECKSUM" = "$CHECKSUM1" ]; then
     echo "      test1.txt checksum verificado: $DL1_CHECKSUM"
 else
@@ -224,11 +256,11 @@ fi
 
 curl -s -H "Authorization: Bearer $SESSION_ID" "$SERVER_URL/api/v1/sync/download" \
     -H "Content-Type: application/json" \
-    -d "{\"session_id\":\"$SESSION_ID\",\"device_id\":\"$DEVICE_ID\",\"file_id\":\"$FILE_ID2\",\"path_hash\":\"\",\"idempotency_key\":\"$(uuidgen)\"}" > "$WORKDIR/dl2.json"
+    -d "{\"session_id\":\"$SESSION_ID\",\"device_id\":\"$DEVICE_ID\",\"file_id\":\"$FILE_ID2\",\"path_hash\":\"\",\"idempotency_key\":\"$(idempotency_key)\"}" > "$WORKDIR/dl2.json"
 
 DL2_B64=$(python3 -c "import json; print(json.load(open('$WORKDIR/dl2.json'))['content'])")
-DL2=$(echo "$DL2_B64" | base64 -d)
-DL2_CHECKSUM=$(echo -n "$DL2" | sha256sum | awk '{print $1}')
+python3 -c "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))" <<< "$DL2_B64" > "$WORKDIR/dl2.bin"
+DL2_CHECKSUM=$(checksum256 "$WORKDIR/dl2.bin")
 if [ "$DL2_CHECKSUM" = "$CHECKSUM2" ]; then
     echo "      test2.bin checksum verificado: $DL2_CHECKSUM"
 else

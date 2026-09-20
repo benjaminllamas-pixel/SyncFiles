@@ -42,7 +42,12 @@ pub async fn run_migrations(pool: &SqlitePool, migrations_dir: &Path) -> anyhow:
             MIGRATIONS_TABLE
         ))
         .bind(version)
-        .bind(path.file_stem().unwrap_or_default().to_string_lossy().to_string())
+        .bind(
+            path.file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string(),
+        )
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;

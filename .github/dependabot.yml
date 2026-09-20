@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /syncfiles-server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: cargo
+    directory: /syncfiles-client
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: cargo
+    directory: /syncfiles-cli
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: cargo
+    directory: /syncfiles-models
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: gradle
+    directory: /syncfiles-android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

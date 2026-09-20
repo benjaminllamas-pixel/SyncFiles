@@ -54,8 +54,8 @@ El servidor lee `.env` si existe (`dotenvy`) y variables de entorno:
 |---|---|---|
 | `SF_BIND_ADDRESS` | `127.0.0.1:8080` | Dirección de escucha. Usar `0.0.0.0:8080` para aceptar conexiones LAN |
 | `SF_SERVER_URL` | `http://127.0.0.1:8080` | URL pública del server (se devuelve en respuestas/cola) |
-| `SF_DATABASE_URL` | `sqlite:data/syncfiles.db` | Ruta de la DB SQLite. **Relativa al CWD de lanzamiento** |
-| `SF_STORAGE_ROOT` | `data/storage` | Carpeta de blobs. **Relativa al CWD de lanzamiento** |
+| `SF_DATABASE_URL` | `sqlite:data/syncfiles.db` | Ruta de la DB SQLite. Las rutas relativas se resuelven respecto al directorio del binario. |
+| `SF_STORAGE_ROOT` | `data/storage` | Carpeta de blobs. Las rutas relativas se resuelven respecto al directorio del binario. |
 | `SF_USER_{i}_EMAIL` / `_PASSWORD` / `_ID` | — | Usuarios estáticos (i = 0, 1, 2…); las contraseñas se hashean con bcrypt al arrancar |
 | `SF_STATIC_DIR` | `./static` (fallback `./syncfiles-server/static`) | Carpeta del dashboard web |
 
@@ -74,7 +74,7 @@ cd syncfiles-server
 cargo run --release
 ```
 
-> ⚠️ **Importante — CWD**: `SF_DATABASE_URL` y `SF_STORAGE_ROOT` por defecto son rutas relativas al directorio desde el que lanzas el proceso. Si hoy lanzas el server desde `syncfiles-server/` y mañana desde la raíz del repo, la DB y el storage apuntarán a carpetas distintas: el diff listará archivos de una DB pero el download buscará el contenido en otro storage y fallará con HTTP 400 "Contenido no encontrado en storage". Lanza siempre desde el mismo directorio (recomendado: `syncfiles-server/`) o usa rutas absolutas en ambas variables.
+> **Rutas persistentes:** las rutas relativas de `SF_DATABASE_URL` y `SF_STORAGE_ROOT` se resuelven respecto al directorio del binario, no del CWD. Use rutas absolutas en systemd, Docker y despliegues cloud para evitar cambiar accidentalmente la raíz de datos.
 
 ### 2.4. Exponerlo en la LAN
 
@@ -253,36 +253,25 @@ Primer uso: login con una cuenta del servidor → elegir carpeta → el WorkMana
 
 La URL del servidor es `http://10.0.2.2:8080` (alias del host desde el emulador). Ya está permitido por `network_security_config.xml` (ver 7.2).
 
-### 7.2. Teléfono físico en la LAN ⚠️
+### 7.2. Teléfono físico en la LAN
 
-Android bloquea tráfico HTTP plano (cleartext) hacia dominios/IPs no listados. La app solo permite cleartext hacia `10.0.2.2`, `127.0.0.1` y `localhost` (`syncfiles-android/app/src/main/res/xml/network_security_config.xml`). Opciones:
+Use HTTPS en producción. Para pruebas LAN con HTTP, instale la APK `debug`: el manifiesto debug permite cleartext y no modifica la política de la APK release.
 
-- **Opción A — HTTPS (recomendada para producción)**: pon el servidor detrás de un proxy inverso con TLS (Caddy, nginx) y usa `https://tu-dominio` en la app. Sin cambios de código.
-- **Opción B — pruebas en LAN con HTTP**: edita `network_security_config.xml` añadiendo la IP de tu Mac dentro del `domain-config` existente:
-
-```xml
-<domain-config cleartextTrafficPermitted="true">
-    <domain includeSubdomains="true">10.0.2.2</domain>
-    <domain includeSubdomains="true">127.0.0.1</domain>
-    <domain includeSubdomains="true">localhost</domain>
-    <!-- Añade la IP de tu equipo: -->
-    <domain includeSubdomains="false">192.168.1.50</domain>
-</domain-config>
+```bash
+scripts/setup-lan.sh --server-ip 192.168.1.50 --port 8080
+scripts/setup-lan.sh --server-ip 192.168.1.50 --check
+cd syncfiles-android
+./gradlew assembleDebug
 ```
 
-  y recompila el APK (`./gradlew assembleDebug`). Luego, en la app, usa `http://192.168.1.50:8080` con el servidor lanzado con `SF_BIND_ADDRESS=0.0.0.0:8080` (sección 2.4).
-
-  Advertencias:
-  - **Nunca** pongas `cleartextTrafficPermitted="true"` en el `base-config` (ese flag afecta a todo el tráfico de la app).
-  - La IP local puede cambiar por DHCP: reserva una IP fija en el router o usa un hostname local (`mimac.local`).
-  - Esta opción es solo para pruebas; para uso continuo usa la Opción A.
+Si necesita una APK release para una IP concreta, genere una configuración de red específica para esa IP y firme la APK; no habilite cleartext global. Reserve una IP fija o use un hostname local porque DHCP puede cambiar la dirección.
 
 ## 8. Solución de problemas
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | Login falla | Credenciales incorrectas o URL malformada | ¿Definiste `SF_USER_*` en el server? Si no, la demo es `admin@syncfiles.local / syncfiles`. Revisa que la URL no tenga barra final ni `https` por error |
-| "Error de sincronización: HTTP 400" al descargar en Android | Storage y DB en CWDs distintos | El server fue lanzado alguna vez desde otro directorio y la DB/storage quedaron separados. Lanza siempre desde el mismo CWD o usa rutas absolutas en `SF_DATABASE_URL`/`SF_STORAGE_ROOT` (sección 2.3) |
+| "Error de sincronización: HTTP 400" al descargar en Android | Storage y DB apuntan a raíces distintas | Use rutas absolutas y coherentes en `SF_DATABASE_URL`/`SF_STORAGE_ROOT`; el release empaqueta migrations/static/docs para el servidor. |
 | La app Android no conecta desde un teléfono físico | Cleartext bloqueado, server no escucha en LAN, cortafuegos o distinta red Wi-Fi | Ver sección 7.2 (IP en `network_security_config.xml`), `SF_BIND_ADDRESS=0.0.0.0:8080`, cortafuegos (2.4) y que ambos estén en la misma red |
 | `adb` no detecta el dispositivo | Depuración USB desactivada o servidor adb colgado | Activa "Depuración USB"; `adb kill-server && adb start-server` |
 | `assembleRelease` produce `app-release-unsigned.apk` | Faltan propiedades de firma | Define las 4 propiedades `SF_KEYSTORE_*` (sección 6.3) en `~/.gradle/gradle.properties` o `gradle.properties.local` |

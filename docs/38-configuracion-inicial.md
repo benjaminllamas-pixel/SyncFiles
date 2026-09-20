@@ -64,16 +64,20 @@ En V1 el entorno debe tener:
 
 ### 4.2 Variables de configuración
 
-El servidor debe disponer de un conjunto mínimo de configuración:
-- `APP_ENV`
-- `DB_PATH`
-- `FILE_STORAGE_PATH`
-- `TLS_CERT_PATH`
-- `TLS_KEY_PATH`
-- `SESSION_TTL_SECONDS`
-- `MAX_RETRY_ATTEMPTS`
-- `POLLING_INTERVAL_SECONDS`
-- `AUDIT_RETENTION_DAYS`
+| Variable | Valor típico | Descripción |
+|---|---|---|
+| `SF_BIND_ADDRESS` | `127.0.0.1:8080` | Bind del servidor; use `0.0.0.0:8080` solo detrás de proxy o en LAN controlada. |
+| `SF_DATABASE_URL` | `sqlite:/var/lib/syncfiles/db/syncfiles.db` | SQLite de metadatos. |
+| `SF_STORAGE_ROOT` | `/var/lib/syncfiles/storage` | Raíz de archivos. |
+| `SF_SERVER_URL` | `https://syncfiles.example.com` | URL pública usada por clientes. |
+| `SF_MIGRATIONS_DIR` | `/opt/syncfiles/migrations` | Migraciones empaquetadas. |
+| `SF_STATIC_DIR` | `/opt/syncfiles/static` | Dashboard web empaquetado. |
+| `SF_USER_0_EMAIL` / `_PASSWORD` / `_ID` | valores fuertes | Cuenta inicial estática. |
+| `SF_ADMIN_TOKEN` | secreto largo | Protege `POST /admin/backup`. |
+| `SF_MAX_UPLOAD_BYTES` | `104857600` | Límite de upload. |
+| `SF_RATE_LIMIT_RPS` / `SF_RATE_LIMIT_BURST` | `60` / `120` | Rate limiter por IP. |
+
+TLS se termina en nginx/Caddy o en el balanceador; el servidor V1 escucha HTTP internamente.
 
 ### 4.3 Autenticación inicial
 
@@ -85,7 +89,7 @@ El usuario final no se registra desde el cliente en V1. El sistema asume:
 ## 5. Primer sincronización
 
 Al finalizar la configuración inicial:
-1. el cliente hace `GET /api/v1/files/changes` para sincronizar el estado remoto,
+1. el cliente hace `POST /api/v1/sync/diff` para sincronizar el estado remoto,
 2. se crea la tabla o estado local de archivos,
 3. se permite la primera sincronización no destructiva,
 4. el sistema deja un paquete de estado inicial auditable,

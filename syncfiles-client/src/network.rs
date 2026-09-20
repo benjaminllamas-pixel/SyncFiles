@@ -1,12 +1,15 @@
 #[allow(dead_code)]
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use reqwest::{Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tracing::info;
 use uuid::Uuid;
 
-use syncfiles_models::{ApiResponse, ApiError, LoginResponse, DiffResponse, UploadRequest, DeleteRequest, ResolveConflictRequest, DownloadResponse};
+use syncfiles_models::{
+    ApiError, ApiResponse, DeleteRequest, DiffResponse, DownloadResponse, LoginResponse,
+    ResolveConflictRequest, UploadRequest,
+};
 
 #[derive(Debug, Clone)]
 pub struct SyncClient {
@@ -17,9 +20,7 @@ pub struct SyncClient {
 
 impl SyncClient {
     pub fn new(base_url: &str, device_id: &str) -> Result<Self> {
-        let http = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()?;
+        let http = Client::builder().timeout(Duration::from_secs(30)).build()?;
         Ok(Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             device_id: device_id.to_string(),
@@ -53,7 +54,9 @@ impl SyncClient {
             req = req.bearer_auth(token);
         }
 
-        let resp: Response = req.send().await
+        let resp: Response = req
+            .send()
+            .await
             .with_context(|| format!("Failed to {} {}", method, url))?;
 
         let status = resp.status();
@@ -63,10 +66,23 @@ impl SyncClient {
             let api_err: ApiError = serde_json::from_str(&text).unwrap_or(ApiError {
                 code: status.as_str().to_string(),
                 message: text.clone(),
-                retryable: matches!(status, StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS | StatusCode::INTERNAL_SERVER_ERROR | StatusCode::BAD_GATEWAY | StatusCode::SERVICE_UNAVAILABLE | StatusCode::GATEWAY_TIMEOUT),
+                retryable: matches!(
+                    status,
+                    StatusCode::REQUEST_TIMEOUT
+                        | StatusCode::TOO_MANY_REQUESTS
+                        | StatusCode::INTERNAL_SERVER_ERROR
+                        | StatusCode::BAD_GATEWAY
+                        | StatusCode::SERVICE_UNAVAILABLE
+                        | StatusCode::GATEWAY_TIMEOUT
+                ),
                 request_id: self.request_id(),
             });
-            return Err(anyhow!("API error {}: {} - retryable: {}", api_err.code, api_err.message, api_err.retryable));
+            return Err(anyhow!(
+                "API error {}: {} - retryable: {}",
+                api_err.code,
+                api_err.message,
+                api_err.retryable
+            ));
         }
 
         let result: T = serde_json::from_str(&text)
@@ -80,7 +96,8 @@ impl SyncClient {
     }
 
     pub async fn http_get_bearer(&self, url: &str, token: &str) -> Result<String> {
-        let resp = self.http
+        let resp = self
+            .http
             .get(url)
             .bearer_auth(token)
             .send()
@@ -94,13 +111,24 @@ impl SyncClient {
         Ok(text)
     }
 
-    pub async fn login(&self, email: &str, password: &str, device_id: &str) -> Result<LoginResponse> {
+    pub async fn login(
+        &self,
+        email: &str,
+        password: &str,
+        device_id: &str,
+    ) -> Result<LoginResponse> {
         let payload = serde_json::json!({
             "email": email,
             "password": password,
             "device_id": device_id
         });
-        self.request(reqwest::Method::POST, "/api/v1/auth/login", Some(payload), None).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/auth/login",
+            Some(payload),
+            None,
+        )
+        .await
     }
 
     pub async fn get_diff(&self, session_id: &str, since: i64) -> Result<DiffResponse> {
@@ -110,13 +138,20 @@ impl SyncClient {
             "session_id": session_id,
             "request_id": self.request_id(),
         });
-        self.request(reqwest::Method::POST, "/api/v1/sync/diff", Some(payload), Some(session_id)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/sync/diff",
+            Some(payload),
+            Some(session_id),
+        )
+        .await
     }
 
     pub async fn upload(&self, req: &UploadRequest) -> Result<ApiResponse<()>> {
         let payload = serde_json::to_value(req)?;
         let url = format!("{}/api/v1/sync/upload", self.base_url);
-        let resp = self.http
+        let resp = self
+            .http
             .post(&url)
             .json(&payload)
             .bearer_auth(&req.session_id)
@@ -141,10 +176,23 @@ impl SyncClient {
             let api_err: ApiError = serde_json::from_str(&text).unwrap_or(ApiError {
                 code: status.as_str().to_string(),
                 message: text.clone(),
-                retryable: matches!(status, StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS | StatusCode::INTERNAL_SERVER_ERROR | StatusCode::BAD_GATEWAY | StatusCode::SERVICE_UNAVAILABLE | StatusCode::GATEWAY_TIMEOUT),
+                retryable: matches!(
+                    status,
+                    StatusCode::REQUEST_TIMEOUT
+                        | StatusCode::TOO_MANY_REQUESTS
+                        | StatusCode::INTERNAL_SERVER_ERROR
+                        | StatusCode::BAD_GATEWAY
+                        | StatusCode::SERVICE_UNAVAILABLE
+                        | StatusCode::GATEWAY_TIMEOUT
+                ),
                 request_id: self.request_id(),
             });
-            return Err(anyhow!("API error {}: {} - retryable: {}", api_err.code, api_err.message, api_err.retryable));
+            return Err(anyhow!(
+                "API error {}: {} - retryable: {}",
+                api_err.code,
+                api_err.message,
+                api_err.retryable
+            ));
         }
 
         let result: ApiResponse<()> = serde_json::from_str(&text)
@@ -153,7 +201,12 @@ impl SyncClient {
         Ok(result)
     }
 
-    pub async fn download(&self, session_id: &str, file_id: &str, path_hash: &str) -> Result<DownloadResponse> {
+    pub async fn download(
+        &self,
+        session_id: &str,
+        file_id: &str,
+        path_hash: &str,
+    ) -> Result<DownloadResponse> {
         let payload = serde_json::json!({
             "session_id": session_id,
             "device_id": self.device_id,
@@ -161,10 +214,21 @@ impl SyncClient {
             "path_hash": path_hash,
             "idempotency_key": self.next_idempotency_key(),
         });
-        self.request(reqwest::Method::POST, "/api/v1/sync/download", Some(payload), Some(session_id)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/sync/download",
+            Some(payload),
+            Some(session_id),
+        )
+        .await
     }
 
-    pub async fn delete(&self, session_id: &str, file_id: &str, path_hash: &str) -> Result<ApiResponse<()>> {
+    pub async fn delete(
+        &self,
+        session_id: &str,
+        file_id: &str,
+        path_hash: &str,
+    ) -> Result<ApiResponse<()>> {
         let payload = DeleteRequest {
             session_id: session_id.to_string(),
             device_id: self.device_id.clone(),
@@ -173,15 +237,37 @@ impl SyncClient {
             idempotency_key: self.next_idempotency_key(),
         };
         let v = serde_json::to_value(&payload)?;
-        self.request(reqwest::Method::POST, "/api/v1/sync/delete", Some(v), Some(session_id)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/sync/delete",
+            Some(v),
+            Some(session_id),
+        )
+        .await
     }
 
-    pub async fn resolve_conflict(&self, session_id: &str, req: &ResolveConflictRequest) -> Result<ApiResponse<()>> {
+    pub async fn resolve_conflict(
+        &self,
+        session_id: &str,
+        req: &ResolveConflictRequest,
+    ) -> Result<ApiResponse<()>> {
         let payload = serde_json::to_value(req)?;
-        self.request(reqwest::Method::POST, "/api/v1/conflicts/resolve", Some(payload), Some(session_id)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/conflicts/resolve",
+            Some(payload),
+            Some(session_id),
+        )
+        .await
     }
 
-    pub async fn rename(&self, session_id: &str, file_id: &str, old_path: &str, new_path: &str) -> Result<ApiResponse<()>> {
+    pub async fn rename(
+        &self,
+        session_id: &str,
+        file_id: &str,
+        old_path: &str,
+        new_path: &str,
+    ) -> Result<ApiResponse<()>> {
         let payload = serde_json::json!({
             "session_id": session_id,
             "device_id": self.device_id,
@@ -190,10 +276,22 @@ impl SyncClient {
             "new_path": new_path,
             "idempotency_key": self.next_idempotency_key(),
         });
-        self.request(reqwest::Method::POST, "/api/v1/sync/rename", Some(payload), Some(session_id)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/sync/rename",
+            Some(payload),
+            Some(session_id),
+        )
+        .await
     }
 
-    pub async fn move_file(&self, session_id: &str, file_id: &str, old_path: &str, new_path: &str) -> Result<ApiResponse<()>> {
+    pub async fn move_file(
+        &self,
+        session_id: &str,
+        file_id: &str,
+        old_path: &str,
+        new_path: &str,
+    ) -> Result<ApiResponse<()>> {
         let payload = serde_json::json!({
             "session_id": session_id,
             "device_id": self.device_id,
@@ -202,10 +300,22 @@ impl SyncClient {
             "new_path": new_path,
             "idempotency_key": self.next_idempotency_key(),
         });
-        self.request(reqwest::Method::POST, "/api/v1/sync/move", Some(payload), Some(session_id)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/sync/move",
+            Some(payload),
+            Some(session_id),
+        )
+        .await
     }
 
-    pub async fn copy_file(&self, session_id: &str, file_id: &str, source_path: &str, destination_path: &str) -> Result<ApiResponse<()>> {
+    pub async fn copy_file(
+        &self,
+        session_id: &str,
+        file_id: &str,
+        source_path: &str,
+        destination_path: &str,
+    ) -> Result<ApiResponse<()>> {
         let payload = serde_json::json!({
             "session_id": session_id,
             "device_id": self.device_id,
@@ -214,7 +324,13 @@ impl SyncClient {
             "destination_path": destination_path,
             "idempotency_key": self.next_idempotency_key(),
         });
-        self.request(reqwest::Method::POST, "/api/v1/sync/copy", Some(payload), Some(session_id)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/sync/copy",
+            Some(payload),
+            Some(session_id),
+        )
+        .await
     }
 
     pub async fn logout(&self, session_id: &str) -> Result<ApiResponse<()>> {
@@ -222,12 +338,19 @@ impl SyncClient {
             "session_id": session_id,
             "device_id": self.device_id,
         });
-        self.request(reqwest::Method::POST, "/api/v1/auth/logout", Some(payload), Some(session_id)).await
+        self.request(
+            reqwest::Method::POST,
+            "/api/v1/auth/logout",
+            Some(payload),
+            Some(session_id),
+        )
+        .await
     }
 
     pub async fn session_status(&self, session_id: &str) -> Result<SessionStatusResponse> {
         let url = format!("{}/api/v1/session/status", self.base_url);
-        let resp = self.http
+        let resp = self
+            .http
             .get(&url)
             .bearer_auth(session_id)
             .send()
@@ -238,8 +361,8 @@ impl SyncClient {
         if !status.is_success() {
             return Err(anyhow!("Session status error: {}", text));
         }
-        let result: SessionStatusResponse = serde_json::from_str(&text)
-            .with_context(|| "Failed to parse session status")?;
+        let result: SessionStatusResponse =
+            serde_json::from_str(&text).with_context(|| "Failed to parse session status")?;
         Ok(result)
     }
 }
@@ -282,18 +405,29 @@ mod tests {
                     // Leer headers + body (Content-Length)
                     loop {
                         let n = stream.read(&mut buf[read..]).unwrap_or(0);
-                        if n == 0 { break; }
+                        if n == 0 {
+                            break;
+                        }
                         read += n;
                         let text = String::from_utf8_lossy(&buf[..read]).to_string();
                         if let Some(pos) = text.find("\r\n\r\n") {
                             for line in text[..pos].lines() {
                                 if line.to_lowercase().starts_with("content-length:") {
-                                    let len: usize =
-                                        line.split(':').nth(1).unwrap_or("0").trim().parse().unwrap_or(0);
-                                    if read - pos - 4 >= len { break; }
+                                    let len: usize = line
+                                        .split(':')
+                                        .nth(1)
+                                        .unwrap_or("0")
+                                        .trim()
+                                        .parse()
+                                        .unwrap_or(0);
+                                    if read - pos - 4 >= len {
+                                        break;
+                                    }
                                 }
                             }
-                            let has_len = text[..pos].lines().any(|l| l.to_lowercase().starts_with("content-length:"));
+                            let has_len = text[..pos]
+                                .lines()
+                                .any(|l| l.to_lowercase().starts_with("content-length:"));
                             if !has_len || text.len() > pos + 4 {
                                 break;
                             }
@@ -301,13 +435,23 @@ mod tests {
                     }
                     let full = String::from_utf8_lossy(&buf[..read]).to_string();
                     let (head, body) = full.split_once("\r\n\r\n").unwrap_or((&full, ""));
-                    let path = head.lines().next().unwrap_or("").split_whitespace().nth(1).unwrap_or("");
+                    let path = head
+                        .lines()
+                        .next()
+                        .unwrap_or("")
+                        .split_whitespace()
+                        .nth(1)
+                        .unwrap_or("");
                     let auth = head
                         .lines()
                         .find(|l| l.to_lowercase().starts_with("authorization:"))
                         .unwrap_or("")
                         .to_string();
-                    requests.lock().unwrap().push(format!("{} {}", head.lines().next().unwrap_or(""), body));
+                    requests.lock().unwrap().push(format!(
+                        "{} {}",
+                        head.lines().next().unwrap_or(""),
+                        body
+                    ));
                     let (status, resp_body) = respond(path, body, &auth);
                     let status_line = match status {
                         200 => "200 OK",
@@ -358,7 +502,10 @@ mod tests {
             (200, r#"{"session_id":"sess-1","user_id":"u-1","device_id":"dev-1","expires_at":9999999999999}"#.into())
         });
         let client = SyncClient::new(&url, "dev-1").unwrap();
-        let resp = client.login("user@test.local", "secret", "dev-1").await.unwrap();
+        let resp = client
+            .login("user@test.local", "secret", "dev-1")
+            .await
+            .unwrap();
         assert_eq!(resp.session_id, "sess-1");
         assert_eq!(resp.user_id, "u-1");
         assert_eq!(requests.lock().unwrap().len(), 1);
@@ -380,7 +527,10 @@ mod tests {
             if auth.contains("sess-valid") && path.contains("/session/status") {
                 (200, r#"{"session_id":"sess-valid","user_id":"u-1","device_id":"dev-1","expires_at":1,"status":"active"}"#.into())
             } else {
-                (401, r#"{"code":"AUTH_REQUIRED","message":"sesión expirada"}"#.into())
+                (
+                    401,
+                    r#"{"code":"AUTH_REQUIRED","message":"sesión expirada"}"#.into(),
+                )
             }
         });
         let client = SyncClient::new(&url, "dev-1").unwrap();
@@ -396,10 +546,15 @@ mod tests {
             let payload: serde_json::Value = serde_json::from_str(body).unwrap();
             // El checksum declarado debe validar contra el contenido base64
             let content = payload["content"].as_str().unwrap();
-            let bytes = base64::engine::general_purpose::STANDARD.decode(content).unwrap();
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(content)
+                .unwrap();
             let checksum = syncfiles_models::compute_checksum(&bytes);
             assert_eq!(payload["checksum"].as_str().unwrap(), checksum);
-            (200, r#"{"accepted":true,"status":"uploaded","data":null,"error":null}"#.into())
+            (
+                200,
+                r#"{"accepted":true,"status":"uploaded","data":null,"error":null}"#.into(),
+            )
         });
         let client = SyncClient::new(&url, "dev-1").unwrap();
         // Texto y binario: el checksum que calcula el mock debe validar
@@ -431,12 +586,19 @@ mod tests {
         let expected_checksum = checksum.clone();
         let b64 = base64::engine::general_purpose::STANDARD.encode(content);
         let (url, _req) = spawn_mock_server(move |_p, _b, _auth| {
-            (200, format!(r#"{{"accepted":true,"status":"ok","checksum":"{checksum}","content":"{b64}","file_id":"file-1","server_seq":10}}"#))
+            (
+                200,
+                format!(
+                    r#"{{"accepted":true,"status":"ok","checksum":"{checksum}","content":"{b64}","file_id":"file-1","server_seq":10}}"#
+                ),
+            )
         });
         let client = SyncClient::new(&url, "dev-1").unwrap();
         let resp = client.download("sess-1", "file-1", "hash").await.unwrap();
         assert_eq!(resp.checksum, expected_checksum);
-        let bytes = base64::engine::general_purpose::STANDARD.decode(&resp.content).unwrap();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&resp.content)
+            .unwrap();
         assert_eq!(bytes, content);
     }
 
@@ -461,7 +623,10 @@ mod tests {
     #[tokio::test]
     async fn delete_sends_bearer_and_idempotency() {
         let (url, requests) = spawn_mock_server(|_p, _b, _auth| {
-            (200, r#"{"accepted":true,"status":"deleted","data":null,"error":null}"#.into())
+            (
+                200,
+                r#"{"accepted":true,"status":"deleted","data":null,"error":null}"#.into(),
+            )
         });
         let client = SyncClient::new(&url, "dev-1").unwrap();
         client.delete("sess-1", "file-1", "hash-1").await.unwrap();

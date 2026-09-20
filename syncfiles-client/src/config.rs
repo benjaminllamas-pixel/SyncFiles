@@ -1,7 +1,7 @@
 use anyhow::Result;
-use std::path::PathBuf;
 use dirs;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -20,9 +20,7 @@ impl Config {
         if let Ok(dir) = std::env::var("SF_DATA_DIR") {
             return PathBuf::from(dir);
         }
-        dirs::data_dir()
-            .expect("no data dir")
-            .join("syncfiles")
+        dirs::data_dir().expect("no data dir").join("syncfiles")
     }
 
     pub fn config_path() -> PathBuf {
@@ -48,11 +46,7 @@ impl Config {
             .unwrap_or_else(|_| format!("desktop-{}", uuid::Uuid::new_v4()));
         let sync_root: PathBuf = std::env::var("SF_SYNC_ROOT")
             .map(|p| p.into())
-            .unwrap_or_else(|_| {
-                dirs::home_dir()
-                    .expect("no home dir")
-                    .join("SyncFiles")
-            });
+            .unwrap_or_else(|_| dirs::home_dir().expect("no home dir").join("SyncFiles"));
         let polling_interval_secs: u64 = std::env::var("SF_POLLING_INTERVAL")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -84,7 +78,8 @@ mod tests {
     use super::*;
 
     fn isolated_data_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("sf-config-test-{}-{}", name, std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("sf-config-test-{}-{}", name, std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         dir

@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use actix_web::{post, web, HttpRequest, HttpResponse, HttpMessage, Result as ActixResult};
+use actix_web::{post, web, HttpMessage, HttpRequest, HttpResponse, Result as ActixResult};
 use serde_json::json;
 use sha2::Digest;
 
@@ -58,11 +58,7 @@ pub async fn backup_handler(
         })));
     }
 
-    let backup_info = state
-        .last_backup
-        .read()
-        .unwrap()
-        .clone();
+    let backup_info = state.last_backup.read().unwrap().clone();
 
     Ok(HttpResponse::Ok().json(json!({
         "status": "ok",
@@ -82,8 +78,7 @@ pub struct BackupInfo {
 
 pub async fn run_backup(state: &Arc<AppState>) -> anyhow::Result<()> {
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
-    let backup_dir = std::env::var("BACKUP_DIR")
-        .unwrap_or_else(|_| "data/backups".to_string());
+    let backup_dir = std::env::var("BACKUP_DIR").unwrap_or_else(|_| "data/backups".to_string());
     let backup_dir = std::path::Path::new(&backup_dir);
     std::fs::create_dir_all(backup_dir)?;
 
@@ -94,10 +89,7 @@ pub async fn run_backup(state: &Arc<AppState>) -> anyhow::Result<()> {
     }
 
     let metadata_backup = backup_dir.join(format!("metadata_{}.db", timestamp));
-    let vacuum_sql = format!(
-        "VACUUM INTO '{}'",
-        metadata_backup.to_string_lossy()
-    );
+    let vacuum_sql = format!("VACUUM INTO '{}'", metadata_backup.to_string_lossy());
     sqlx::query(&vacuum_sql).execute(&state.pool).await?;
     tracing::info!("VACUUM INTO backup: {}", metadata_backup.display());
 

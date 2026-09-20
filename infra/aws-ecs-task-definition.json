@@ -1,0 +1,63 @@
+{
+  "family": "syncfiles",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "__EXECUTION_ROLE_ARN__",
+  "taskRoleArn": "__TASK_ROLE_ARN__",
+  "volumes": [
+    {
+      "name": "syncfiles-data",
+      "efsVolumeConfiguration": {
+        "filesystemId": "__EFS_FILESYSTEM_ID__",
+        "rootDirectory": "/syncfiles",
+        "transitEncryption": "ENABLED",
+        "authorizationConfig": {
+          "accessPointId": "__EFS_ACCESS_POINT_ID__",
+          "iam": "ENABLED"
+        }
+      }
+    }
+  ],
+  "containerDefinitions": [
+    {
+      "name": "syncfiles-server",
+      "image": "__IMAGE__",
+      "essential": true,
+      "portMappings": [
+        {"containerPort": 8080, "protocol": "tcp"}
+      ],
+      "mountPoints": [
+        {"sourceVolume": "syncfiles-data", "containerPath": "/data"}
+      ],
+      "environment": [
+        {"name": "SF_BIND_ADDRESS", "value": "0.0.0.0:8080"},
+        {"name": "SF_MIGRATIONS_DIR", "value": "/app/migrations"},
+        {"name": "SF_STATIC_DIR", "value": "/app/static"},
+        {"name": "SF_DATABASE_URL", "value": "sqlite:/data/db/syncfiles.db"},
+        {"name": "SF_STORAGE_ROOT", "value": "/data/storage"},
+        {"name": "BACKUP_DIR", "value": "/data/backups"},
+        {"name": "SF_ADMIN_TOKEN", "value": "__ADMIN_TOKEN__"},
+        {"name": "SF_USER_0_EMAIL", "value": "__USER_EMAIL__"},
+        {"name": "SF_USER_0_PASSWORD", "value": "__USER_PASSWORD__"},
+        {"name": "SF_USER_0_ID", "value": "__USER_ID__"}
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -sf http://localhost:8080/health/live || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 15
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "__LOG_GROUP__",
+          "awslogs-region": "__REGION__",
+          "awslogs-stream-prefix": "syncfiles"
+        }
+      }
+    }
+  ]
+}

@@ -14,29 +14,25 @@ En V1, la distribución debe ser simple, verificable y consistente:
 
 ### 2.1 Windows
 
-- instalador `.msi` o `.exe` firmado por certificado válido,
-- distribución por canal interno o por paquete de empresa,
-- validación de firma digital antes de aceptar actualizaciones,
-- soporte para instalación silenciosa en entornos administrados.
+El workflow de tag genera:
+
+- `syncfiles-<version>-windows-x86_64.zip` con server, client y CLI,
+- `syncfiles-<version>-windows-x86_64-setup.exe` creado con Inno Setup,
+- APK Android y archivos `.sha256`.
+
+El instalador y los EXE se firman con `signtool` cuando `SF_WINDOWS_PFX_BASE64` y `SF_WINDOWS_CERT_PASSWORD` están configurados. El workflow falla en un tag si falta la firma.
 
 ### 2.2 macOS
 
-- `.dmg` o paquete `.app` firmado,
-- soporte para entornos de desktop con validación de identidad,
-- actualizaciones por auto-update con verificación de firma,
-- compatibilidad con el sistema operativo soportado por la versión.
+El workflow genera DMG por componente y un DMG combinado. `codesign` firma los binarios y `scripts/notarize-release.sh` envía el DMG a `notarytool` y lo staplea. Los secretos requeridos son los certificados, la identidad, Apple ID, contraseña de aplicación y Team ID descritos en `docs/56-gobernanza-github.md`.
 
 ### 2.3 Linux
 
-- paquetes `.deb` / `.rpm` o tarball portable,
-- versiones por distribución y perfil de soporte,
-- instalación con permisos del usuario o del sistema según contexto.
+Se generan TAR.GZ portables para server, client, CLI y el bundle combinado. Cuando `dpkg-deb` está disponible en el runner se genera además `syncfiles-<version>-linux-x86_64.deb` con una unidad systemd opcional. Todo artefacto tiene su checksum SHA-256.
 
 ### 2.4 Android
 
-- distribución por Google Play o vía internal testing,
-- validación de versión y compatibilidad con API mínima,
-- actualización por store o canal interno según política de despliegue.
+`assembleRelease` usa las propiedades `SF_KEYSTORE_*`. El workflow de tag decodifica `SF_ANDROID_KEYSTORE_BASE64` en un keystore temporal y falla si falta la firma. La APK resultante se publica junto con su checksum.
 
 ### 2.5 Emacs
 

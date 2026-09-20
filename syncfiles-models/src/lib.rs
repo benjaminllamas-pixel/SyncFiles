@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,7 +320,7 @@ pub fn uuid_str() -> String {
 }
 
 pub fn compute_path_hash(path: &str) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let normalized = path.trim_start_matches('/');
     let mut hasher = Sha256::new();
     hasher.update(normalized.as_bytes());
@@ -328,7 +328,7 @@ pub fn compute_path_hash(path: &str) -> String {
 }
 
 pub fn compute_checksum(content: &[u8]) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(content);
     format!("{:x}", hasher.finalize())
@@ -551,8 +551,14 @@ mod tests {
     #[test]
     fn path_hash_ignores_leading_slash() {
         // Contrato client/server: "/docs/a.txt" y "docs/a.txt" son la misma ruta.
-        assert_eq!(compute_path_hash("/docs/a.txt"), compute_path_hash("docs/a.txt"));
-        assert_ne!(compute_path_hash("docs/a.txt"), compute_path_hash("docs/b.txt"));
+        assert_eq!(
+            compute_path_hash("/docs/a.txt"),
+            compute_path_hash("docs/a.txt")
+        );
+        assert_ne!(
+            compute_path_hash("docs/a.txt"),
+            compute_path_hash("docs/b.txt")
+        );
     }
 
     #[test]

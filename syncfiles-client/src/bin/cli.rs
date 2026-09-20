@@ -53,7 +53,8 @@ async fn main() -> Result<()> {
             println!("{}", resp);
         }
         "upload" => {
-            let session = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
+            let session =
+                do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
             let content = std::fs::read(&args.arg1)?;
             let checksum = compute_checksum(&content);
             let relative = PathBuf::from(&args.arg1)
@@ -75,7 +76,8 @@ async fn main() -> Result<()> {
                 "idempotency_key": Uuid::new_v4(),
                 "content": BASE64.encode(&content),
             });
-            let resp = http.post(format!("{}/api/v1/sync/upload", base))
+            let resp = http
+                .post(format!("{}/api/v1/sync/upload", base))
                 .json(&payload)
                 .bearer_auth(&session)
                 .send()
@@ -83,7 +85,8 @@ async fn main() -> Result<()> {
             println!("{}", resp.text().await?);
         }
         "download" => {
-            let session = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
+            let session =
+                do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
             let payload = serde_json::json!({
                 "session_id": session,
                 "device_id": args.device_id,
@@ -91,7 +94,8 @@ async fn main() -> Result<()> {
                 "path_hash": "",
                 "idempotency_key": Uuid::new_v4(),
             });
-            let resp = http.post(format!("{}/api/v1/sync/download", base))
+            let resp = http
+                .post(format!("{}/api/v1/sync/download", base))
                 .json(&payload)
                 .bearer_auth(&session)
                 .send()
@@ -105,7 +109,8 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&v)?);
         }
         "delete" => {
-            let session = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
+            let session =
+                do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
             let payload = serde_json::json!({
                 "session_id": session,
                 "device_id": args.device_id,
@@ -113,7 +118,8 @@ async fn main() -> Result<()> {
                 "path_hash": "",
                 "idempotency_key": Uuid::new_v4(),
             });
-            let resp = http.post(format!("{}/api/v1/sync/delete", base))
+            let resp = http
+                .post(format!("{}/api/v1/sync/delete", base))
                 .json(&payload)
                 .bearer_auth(&session)
                 .send()
@@ -121,7 +127,8 @@ async fn main() -> Result<()> {
             println!("{}", resp.text().await?);
         }
         "rename" => {
-            let session = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
+            let session =
+                do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
             let payload = serde_json::json!({
                 "session_id": session,
                 "device_id": args.device_id,
@@ -130,7 +137,8 @@ async fn main() -> Result<()> {
                 "new_path": args.arg2,
                 "idempotency_key": Uuid::new_v4(),
             });
-            let resp = http.post(format!("{}/api/v1/sync/rename", base))
+            let resp = http
+                .post(format!("{}/api/v1/sync/rename", base))
                 .json(&payload)
                 .bearer_auth(&session)
                 .send()
@@ -138,7 +146,8 @@ async fn main() -> Result<()> {
             println!("{}", resp.text().await?);
         }
         "diff" => {
-            let session = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
+            let session =
+                do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
             let since: i64 = args.arg1.parse().unwrap_or(0);
             let payload = serde_json::json!({
                 "since": since,
@@ -146,7 +155,8 @@ async fn main() -> Result<()> {
                 "session_id": session,
                 "request_id": Uuid::new_v4(),
             });
-            let resp = http.post(format!("{}/api/v1/sync/diff", base))
+            let resp = http
+                .post(format!("{}/api/v1/sync/diff", base))
                 .json(&payload)
                 .bearer_auth(&session)
                 .send()
@@ -154,20 +164,24 @@ async fn main() -> Result<()> {
             println!("{}", resp.text().await?);
         }
         "session-status" => {
-            let session = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
-            let resp = http.get(format!("{}/api/v1/session/status", base))
+            let session =
+                do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
+            let resp = http
+                .get(format!("{}/api/v1/session/status", base))
                 .bearer_auth(&session)
                 .send()
                 .await?;
             println!("{}", resp.text().await?);
         }
         "logout" => {
-            let session = do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
+            let session =
+                do_login(&http, &base, &args.email, &args.password, &args.device_id).await?;
             let payload = serde_json::json!({
                 "session_id": session,
                 "device_id": args.device_id,
             });
-            let resp = http.post(format!("{}/api/v1/auth/logout", base))
+            let resp = http
+                .post(format!("{}/api/v1/auth/logout", base))
                 .json(&payload)
                 .bearer_auth(&session)
                 .send()
@@ -182,13 +196,20 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn do_login(http: &Client, base: &str, email: &str, password: &str, device_id: &str) -> Result<String> {
+async fn do_login(
+    http: &Client,
+    base: &str,
+    email: &str,
+    password: &str,
+    device_id: &str,
+) -> Result<String> {
     let payload = serde_json::json!({
         "email": email,
         "password": password,
         "device_id": device_id,
     });
-    let resp = http.post(format!("{}/api/v1/auth/login", base))
+    let resp = http
+        .post(format!("{}/api/v1/auth/login", base))
         .json(&payload)
         .send()
         .await?;

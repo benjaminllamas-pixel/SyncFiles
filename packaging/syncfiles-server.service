@@ -1,0 +1,17 @@
+[Unit]
+Description=SyncFiles V1 server
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/syncfiles
+ExecStart=/opt/syncfiles/bin/syncfiles-server
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/syncfiles
+User=syncfiles
+TimeoutStopSec=30

@@ -1,14 +1,14 @@
-pub mod config;
 pub mod auth;
-pub mod network;
+pub mod config;
 pub mod metadata;
+pub mod network;
 pub mod sync;
 pub mod watcher;
 
+use eframe::egui;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use eframe::egui;
 
 fn main() -> eframe::Result<()> {
     tracing_subscriber::registry()
@@ -155,11 +155,29 @@ struct Notification {
 #[derive(Debug, Clone, PartialEq)]
 enum Modal {
     None,
-    Rename { file_id: String, old_path: String, new_path: String },
-    Move { file_id: String, old_path: String, new_path: String },
-    Copy { file_id: String, source_path: String, destination_path: String },
-    Delete { file_id: String, path: String },
-    ConflictResolve { conflict_id: String, file_id: String },
+    Rename {
+        file_id: String,
+        old_path: String,
+        new_path: String,
+    },
+    Move {
+        file_id: String,
+        old_path: String,
+        new_path: String,
+    },
+    Copy {
+        file_id: String,
+        source_path: String,
+        destination_path: String,
+    },
+    Delete {
+        file_id: String,
+        path: String,
+    },
+    ConflictResolve {
+        conflict_id: String,
+        file_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -173,9 +191,14 @@ enum NotificationKind {
 impl SyncFilesUi {
     fn new() -> Self {
         let config = crate::config::Config::load().expect("Failed to load config");
-        let sync_client = Arc::new(crate::network::SyncClient::new(&config.server_url, &config.device_id).expect("Failed to create client"));
+        let sync_client = Arc::new(
+            crate::network::SyncClient::new(&config.server_url, &config.device_id)
+                .expect("Failed to create client"),
+        );
 
-        let metadata = Arc::new(std::sync::Mutex::new(crate::metadata::MetadataStore::new(config.clone()).expect("Failed to init metadata")));
+        let metadata = Arc::new(std::sync::Mutex::new(
+            crate::metadata::MetadataStore::new(config.clone()).expect("Failed to init metadata"),
+        ));
 
         let login_server_url = config.server_url.clone();
         let login_email = config.email.clone();
@@ -248,11 +271,8 @@ impl SyncFilesUi {
         let wakeup = self.sync_wakeup.clone();
         let paused = self.paused;
         std::thread::spawn(move || {
-            let engine = crate::sync::SyncEngine::new(
-                config.clone(),
-                sync_client.clone(),
-                metadata.clone(),
-            );
+            let engine =
+                crate::sync::SyncEngine::new(config.clone(), sync_client.clone(), metadata.clone());
             engine.set_paused(paused);
             engine.set_wakeup(wakeup);
             let rt = tokio::runtime::Runtime::new().expect("sync runtime");
@@ -271,12 +291,15 @@ impl SyncFilesUi {
         if self.config.sync_root.is_dir() {
             let metadata = self.metadata.clone();
             let root = self.config.sync_root.clone();
-            let watcher = crate::watcher::FileWatcher::new(root, Arc::new(move |path_str| {
-                let store = metadata.lock().unwrap();
-                if let Err(e) = store.enqueue(&path_str, "pending", None) {
-                    tracing::warn!("Failed to enqueue watcher change: {}", e);
-                }
-            }));
+            let watcher = crate::watcher::FileWatcher::new(
+                root,
+                Arc::new(move |path_str| {
+                    let store = metadata.lock().unwrap();
+                    if let Err(e) = store.enqueue(&path_str, "pending", None) {
+                        tracing::warn!("Failed to enqueue watcher change: {}", e);
+                    }
+                }),
+            );
             if let Ok(watcher_handle) = watcher.start() {
                 self.watcher_handle = Some(watcher_handle);
                 self.watcher = Some(watcher);
@@ -321,9 +344,8 @@ impl SyncFilesUi {
         std::thread::spawn(move || {
             let auth = crate::auth::AuthService::new(client, metadata.clone());
             let rt = tokio::runtime::Runtime::new().expect("auth runtime");
-            let result = rt.block_on(async move {
-                auth.login_raw(&email, &password, &device_id).await
-            });
+            let result =
+                rt.block_on(async move { auth.login_raw(&email, &password, &device_id).await });
             *login_result.lock().unwrap() = Some(result.map(|_| ()).map_err(|e| e.to_string()));
         });
     }
@@ -356,9 +378,20 @@ impl SyncFilesUi {
     fn toggle_pause(&mut self) {
         self.paused = !self.paused;
         let _ = self.sync_wakeup.send(());
-        let msg = if self.paused { "Sincronizacion pausada".to_string() } else { "Sincronizacion reanudada".to_string() };
+        let msg = if self.paused {
+            "Sincronizacion pausada".to_string()
+        } else {
+            "Sincronizacion reanudada".to_string()
+        };
         self.add_activity(msg);
-        self.notify(NotificationKind::Info, if self.paused { "Sincronizacion pausada" } else { "Sincronizacion reanudada" });
+        self.notify(
+            NotificationKind::Info,
+            if self.paused {
+                "Sincronizacion pausada"
+            } else {
+                "Sincronizacion reanudada"
+            },
+        );
     }
 
     fn sync_now(&mut self) {
@@ -394,7 +427,8 @@ impl SyncFilesUi {
         collect_files(&self.config.sync_root, &self.config.sync_root, &mut files);
 
         let metadata = self.metadata.lock().unwrap();
-        let db_entries = metadata.get_files_by_status("pending")
+        let db_entries = metadata
+            .get_files_by_status("pending")
             .or_else(|_| metadata.get_files_by_status("synced"))
             .unwrap_or_default();
         drop(metadata);
@@ -405,14 +439,17 @@ impl SyncFilesUi {
         }
 
         for file in &mut files {
-            let state = db_map.get(&file.path).map(|s| match s.as_str() {
-                "synced" => FileState::Synced,
-                "pending" => FileState::Pending,
-                "conflict" => FileState::Conflict,
-                "quarantined" => FileState::Error,
-                "deleted" => FileState::Deleted,
-                _ => FileState::Local,
-            }).unwrap_or(FileState::Local);
+            let state = db_map
+                .get(&file.path)
+                .map(|s| match s.as_str() {
+                    "synced" => FileState::Synced,
+                    "pending" => FileState::Pending,
+                    "conflict" => FileState::Conflict,
+                    "quarantined" => FileState::Error,
+                    "deleted" => FileState::Deleted,
+                    _ => FileState::Local,
+                })
+                .unwrap_or(FileState::Local);
             file.status = state;
         }
 
@@ -440,24 +477,28 @@ impl SyncFilesUi {
         let metadata = self.metadata.lock().unwrap();
         match metadata.get_conflicts() {
             Ok(entries) => {
-                self.conflicts = entries.into_iter().map(|e| {
-                    // Buscar la ruta real del archivo en la BD local
-                    let path = metadata.get_file_by_id(&e.file_id)
-                        .ok()
-                        .flatten()
-                        .map(|f| f.relative_path)
-                        .unwrap_or_else(|| e.file_id.clone());
-                    UiConflict {
-                        conflict_id: e.conflict_id,
-                        file_id: e.file_id,
-                        path,
-                        local_checksum: e.local_checksum.unwrap_or_default(),
-                        remote_checksum: e.remote_checksum.unwrap_or_default(),
-                        strategy: e.strategy,
-                        created_at: e.created_at,
-                        resolved: e.resolved_at.is_some(),
-                    }
-                }).collect();
+                self.conflicts = entries
+                    .into_iter()
+                    .map(|e| {
+                        // Buscar la ruta real del archivo en la BD local
+                        let path = metadata
+                            .get_file_by_id(&e.file_id)
+                            .ok()
+                            .flatten()
+                            .map(|f| f.relative_path)
+                            .unwrap_or_else(|| e.file_id.clone());
+                        UiConflict {
+                            conflict_id: e.conflict_id,
+                            file_id: e.file_id,
+                            path,
+                            local_checksum: e.local_checksum.unwrap_or_default(),
+                            remote_checksum: e.remote_checksum.unwrap_or_default(),
+                            strategy: e.strategy,
+                            created_at: e.created_at,
+                            resolved: e.resolved_at.is_some(),
+                        }
+                    })
+                    .collect();
             }
             Err(e) => {
                 tracing::warn!("Failed to load conflicts: {}", e);
@@ -470,13 +511,16 @@ impl SyncFilesUi {
         let metadata = self.metadata.lock().unwrap();
         match metadata.get_devices() {
             Ok(entries) => {
-                self.devices = entries.into_iter().map(|d| UiDevice {
-                    device_id: d.device_id,
-                    platform: d.platform,
-                    device_name: d.device_name,
-                    last_seen_at: Some(d.last_seen_at),
-                    status: "active".to_string(),
-                }).collect();
+                self.devices = entries
+                    .into_iter()
+                    .map(|d| UiDevice {
+                        device_id: d.device_id,
+                        platform: d.platform,
+                        device_name: d.device_name,
+                        last_seen_at: Some(d.last_seen_at),
+                        status: "active".to_string(),
+                    })
+                    .collect();
             }
             Err(e) => {
                 tracing::warn!("Failed to load devices: {}", e);
@@ -488,14 +532,19 @@ impl SyncFilesUi {
     fn refresh_stats(&mut self) {
         self.dashboard_stats = None;
         self.stats_error = None;
-        let Some(session_id) = self.session_id.clone() else { return };
+        let Some(session_id) = self.session_id.clone() else {
+            return;
+        };
         let client = self.sync_client.clone();
 
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("stats runtime");
             let result: Result<syncfiles_models::StorageStats, String> = rt.block_on(async move {
                 let url = format!("{}/api/v1/storage/stats", client.base_url());
-                let resp = client.http_get_bearer(&url, &session_id).await.map_err(|e| e.to_string())?;
+                let resp = client
+                    .http_get_bearer(&url, &session_id)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 serde_json::from_str::<syncfiles_models::StorageStats>(&resp)
                     .map_err(|e| e.to_string())
             });
@@ -523,9 +572,10 @@ impl SyncFilesUi {
         let metadata = self.metadata.lock().unwrap();
         match metadata.get_audit_log() {
             Ok(entries) => {
-                self.activity = entries.into_iter().map(|e| {
-                    format!("{} - {}", e.event_name, e.payload_json.unwrap_or_default())
-                }).collect();
+                self.activity = entries
+                    .into_iter()
+                    .map(|e| format!("{} - {}", e.event_name, e.payload_json.unwrap_or_default()))
+                    .collect();
             }
             Err(e) => {
                 tracing::warn!("Failed to load activity: {}", e);
@@ -560,7 +610,9 @@ impl SyncFilesUi {
     // ---------- Operaciones remotas (modales) ----------
 
     fn do_rename(&mut self, file_id: &str, old_path: &str, new_path: &str) {
-        let Some(session_id) = self.session_id.clone() else { return };
+        let Some(session_id) = self.session_id.clone() else {
+            return;
+        };
         let client = self.sync_client.clone();
         let metadata = self.metadata.clone();
         let sync_root = self.config.sync_root.clone();
@@ -592,18 +644,31 @@ impl SyncFilesUi {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("rename runtime");
             rt.block_on(async move {
-                if let Err(e) = client.rename(&session_id, &file_id, &old_path_for_remote, &new_path_for_remote).await {
+                if let Err(e) = client
+                    .rename(
+                        &session_id,
+                        &file_id,
+                        &old_path_for_remote,
+                        &new_path_for_remote,
+                    )
+                    .await
+                {
                     tracing::error!("Error al renombrar remoto: {}", e);
                 }
             });
         });
-        self.add_activity(format!("Renombrado: {} -> {}", old_path_for_log, new_path_for_log));
+        self.add_activity(format!(
+            "Renombrado: {} -> {}",
+            old_path_for_log, new_path_for_log
+        ));
         self.notify(NotificationKind::Success, "Archivo renombrado");
         self.refresh_files();
     }
 
     fn do_move_file(&mut self, file_id: &str, old_path: &str, new_path: &str) {
-        let Some(session_id) = self.session_id.clone() else { return };
+        let Some(session_id) = self.session_id.clone() else {
+            return;
+        };
         let client = self.sync_client.clone();
         let metadata = self.metadata.clone();
         let sync_root = self.config.sync_root.clone();
@@ -634,18 +699,31 @@ impl SyncFilesUi {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("move runtime");
             rt.block_on(async move {
-                if let Err(e) = client.move_file(&session_id, &file_id, &old_path_for_remote, &new_path_for_remote).await {
+                if let Err(e) = client
+                    .move_file(
+                        &session_id,
+                        &file_id,
+                        &old_path_for_remote,
+                        &new_path_for_remote,
+                    )
+                    .await
+                {
                     tracing::error!("Error al mover remoto: {}", e);
                 }
             });
         });
-        self.add_activity(format!("Movido: {} -> {}", old_path_for_log, new_path_for_log));
+        self.add_activity(format!(
+            "Movido: {} -> {}",
+            old_path_for_log, new_path_for_log
+        ));
         self.notify(NotificationKind::Success, "Archivo movido");
         self.refresh_files();
     }
 
     fn do_copy_file(&mut self, file_id: &str, source_path: &str, destination_path: &str) {
-        let Some(session_id) = self.session_id.clone() else { return };
+        let Some(session_id) = self.session_id.clone() else {
+            return;
+        };
         let client = self.sync_client.clone();
         let sync_root = self.config.sync_root.clone();
         let file_id = file_id.to_string();
@@ -669,18 +747,26 @@ impl SyncFilesUi {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("copy runtime");
             rt.block_on(async move {
-                if let Err(e) = client.copy_file(&session_id, &file_id, &source_path, &destination_path).await {
+                if let Err(e) = client
+                    .copy_file(&session_id, &file_id, &source_path, &destination_path)
+                    .await
+                {
                     tracing::error!("Error al copiar remoto: {}", e);
                 }
             });
         });
-        self.add_activity(format!("Copiado: {} -> {}", source_for_log, destination_for_log));
+        self.add_activity(format!(
+            "Copiado: {} -> {}",
+            source_for_log, destination_for_log
+        ));
         self.notify(NotificationKind::Success, "Archivo copiado");
         self.refresh_files();
     }
 
     fn do_delete_file(&mut self, file_id: &str, path: &str) {
-        let Some(session_id) = self.session_id.clone() else { return };
+        let Some(session_id) = self.session_id.clone() else {
+            return;
+        };
         let client = self.sync_client.clone();
         let sync_root = self.config.sync_root.clone();
         let file_id = file_id.to_string();
@@ -688,9 +774,7 @@ impl SyncFilesUi {
         let path_for_log = path.clone();
 
         let local = sync_root.join(&path);
-        if local.exists()
-            && std::fs::remove_file(&local).is_err()
-        {
+        if local.exists() && std::fs::remove_file(&local).is_err() {
             self.notify(NotificationKind::Error, "No se pudo borrar localmente");
             return;
         }
@@ -732,8 +816,15 @@ impl SyncFilesUi {
                 });
                 ui.add_space(12.0);
                 ui.vertical_centered(|ui| {
-                    let label = if self.connecting { "Conectando..." } else { "Iniciar sesión" };
-                    if ui.add_enabled(!self.connecting, egui::Button::new(label)).clicked() {
+                    let label = if self.connecting {
+                        "Conectando..."
+                    } else {
+                        "Iniciar sesión"
+                    };
+                    if ui
+                        .add_enabled(!self.connecting, egui::Button::new(label))
+                        .clicked()
+                    {
                         self.login();
                     }
                 });
@@ -741,7 +832,10 @@ impl SyncFilesUi {
 
             if self.connecting {
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new("Conectando...").color(egui::Color32::from_rgb(230, 170, 45)));
+                ui.label(
+                    egui::RichText::new("Conectando...")
+                        .color(egui::Color32::from_rgb(230, 170, 45)),
+                );
             }
             if let Some(error) = &self.login_error {
                 ui.add_space(8.0);
@@ -798,7 +892,10 @@ impl SyncFilesUi {
             ui.end_row();
 
             ui.strong("Conflictos pendientes");
-            ui.label(format!("{}", self.conflicts.iter().filter(|c| !c.resolved).count()));
+            ui.label(format!(
+                "{}",
+                self.conflicts.iter().filter(|c| !c.resolved).count()
+            ));
             ui.end_row();
 
             ui.strong("Última sincronización");
@@ -829,7 +926,10 @@ impl SyncFilesUi {
             });
         } else if self.stats_error.is_some() {
             ui.add_space(8.0);
-            ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "No se pudieron cargar las estadísticas del servidor");
+            ui.colored_label(
+                egui::Color32::from_rgb(220, 80, 80),
+                "No se pudieron cargar las estadísticas del servidor",
+            );
         }
 
         ui.add_space(16.0);
@@ -895,7 +995,11 @@ impl SyncFilesUi {
                     ui.label(&conflict.path);
                     ui.label(&conflict.local_checksum[..8.min(conflict.local_checksum.len())]);
                     ui.label(&conflict.remote_checksum[..8.min(conflict.remote_checksum.len())]);
-                    ui.label(if conflict.resolved { "Resuelto" } else { "Pendiente" });
+                    ui.label(if conflict.resolved {
+                        "Resuelto"
+                    } else {
+                        "Pendiente"
+                    });
                     ui.end_row();
                     if !conflict.resolved {
                         let conflict_id = conflict.conflict_id.clone();
@@ -952,7 +1056,10 @@ impl SyncFilesUi {
                 }
             });
         });
-        self.add_activity(format!("Conflicto resuelto: {} -> {}", conflict_id_for_log, decision_for_log));
+        self.add_activity(format!(
+            "Conflicto resuelto: {} -> {}",
+            conflict_id_for_log, decision_for_log
+        ));
         self.notify(NotificationKind::Success, "Conflicto resuelto");
         self.refresh_conflicts();
     }
@@ -1007,10 +1114,13 @@ impl SyncFilesUi {
             self.refresh_files();
             self.refresh_queue();
         }
-        ui.small(format!("Última lectura local: {}", match self.last_sync {
-            Some(t) => format!("hace {} s", t.elapsed().as_secs()),
-            None => "nunca".to_string(),
-        }));
+        ui.small(format!(
+            "Última lectura local: {}",
+            match self.last_sync {
+                Some(t) => format!("hace {} s", t.elapsed().as_secs()),
+                None => "nunca".to_string(),
+            }
+        ));
         if let Some(error) = &self.scan_error {
             ui.colored_label(egui::Color32::from_rgb(220, 80, 80), error);
         }
@@ -1026,21 +1136,33 @@ impl SyncFilesUi {
         if ui.button("Renombrar").clicked() {
             if let Some(file) = self.context_menu_file.clone() {
                 let file_id = self.resolve_file_id(&file.path);
-                self.modal = Modal::Rename { file_id, old_path: file.path.clone(), new_path: file.path.clone() };
+                self.modal = Modal::Rename {
+                    file_id,
+                    old_path: file.path.clone(),
+                    new_path: file.path.clone(),
+                };
             }
             ui.close_menu();
         }
         if ui.button("Mover").clicked() {
             if let Some(file) = self.context_menu_file.clone() {
                 let file_id = self.resolve_file_id(&file.path);
-                self.modal = Modal::Move { file_id, old_path: file.path.clone(), new_path: file.path.clone() };
+                self.modal = Modal::Move {
+                    file_id,
+                    old_path: file.path.clone(),
+                    new_path: file.path.clone(),
+                };
             }
             ui.close_menu();
         }
         if ui.button("Copiar").clicked() {
             if let Some(file) = self.context_menu_file.clone() {
                 let file_id = self.resolve_file_id(&file.path);
-                self.modal = Modal::Copy { file_id, source_path: file.path.clone(), destination_path: file.path.clone() };
+                self.modal = Modal::Copy {
+                    file_id,
+                    source_path: file.path.clone(),
+                    destination_path: file.path.clone(),
+                };
             }
             ui.close_menu();
         }
@@ -1048,7 +1170,10 @@ impl SyncFilesUi {
         if ui.button("Eliminar").clicked() {
             if let Some(file) = self.context_menu_file.clone() {
                 let file_id = self.resolve_file_id(&file.path);
-                self.modal = Modal::Delete { file_id, path: file.path.clone() };
+                self.modal = Modal::Delete {
+                    file_id,
+                    path: file.path.clone(),
+                };
             }
             ui.close_menu();
         }
@@ -1056,7 +1181,8 @@ impl SyncFilesUi {
 
     fn resolve_file_id(&self, relative_path: &str) -> String {
         let metadata = self.metadata.lock().unwrap();
-        metadata.get_file_by_relative_path(relative_path)
+        metadata
+            .get_file_by_relative_path(relative_path)
             .ok()
             .flatten()
             .map(|f| f.file_id)
@@ -1076,30 +1202,54 @@ impl SyncFilesUi {
             .resizable(false)
             .show(ctx, |ui| {
                 match self.modal.clone() {
-                    Modal::Rename { file_id, old_path, ref mut new_path } => {
+                    Modal::Rename {
+                        file_id,
+                        old_path,
+                        ref mut new_path,
+                    } => {
                         ui.heading("Renombrar archivo");
                         ui.label(format!("Actual: {}", old_path));
                         ui.text_edit_singleline(new_path);
                         if ui.button("Renombrar").clicked() {
-                            action = Some(ModalAction::Rename { file_id, old_path, new_path: new_path.clone() });
+                            action = Some(ModalAction::Rename {
+                                file_id,
+                                old_path,
+                                new_path: new_path.clone(),
+                            });
                             close = true;
                         }
                     }
-                    Modal::Move { file_id, old_path, ref mut new_path } => {
+                    Modal::Move {
+                        file_id,
+                        old_path,
+                        ref mut new_path,
+                    } => {
                         ui.heading("Mover archivo");
                         ui.label(format!("Actual: {}", old_path));
                         ui.text_edit_singleline(new_path);
                         if ui.button("Mover").clicked() {
-                            action = Some(ModalAction::Move { file_id, old_path, new_path: new_path.clone() });
+                            action = Some(ModalAction::Move {
+                                file_id,
+                                old_path,
+                                new_path: new_path.clone(),
+                            });
                             close = true;
                         }
                     }
-                    Modal::Copy { file_id, source_path, ref mut destination_path } => {
+                    Modal::Copy {
+                        file_id,
+                        source_path,
+                        ref mut destination_path,
+                    } => {
                         ui.heading("Copiar archivo");
                         ui.label(format!("Origen: {}", source_path));
                         ui.text_edit_singleline(destination_path);
                         if ui.button("Copiar").clicked() {
-                            action = Some(ModalAction::Copy { file_id, source_path, destination_path: destination_path.clone() });
+                            action = Some(ModalAction::Copy {
+                                file_id,
+                                source_path,
+                                destination_path: destination_path.clone(),
+                            });
                             close = true;
                         }
                     }
@@ -1111,15 +1261,24 @@ impl SyncFilesUi {
                             close = true;
                         }
                     }
-                    Modal::ConflictResolve { conflict_id, file_id: _ } => {
+                    Modal::ConflictResolve {
+                        conflict_id,
+                        file_id: _,
+                    } => {
                         ui.heading("Resolver conflicto");
                         ui.label(format!("Conflicto {}", conflict_id));
                         if ui.button("Mantener local").clicked() {
-                            action = Some(ModalAction::ResolveConflict { conflict_id: conflict_id.clone(), decision: "keep_local".to_string() });
+                            action = Some(ModalAction::ResolveConflict {
+                                conflict_id: conflict_id.clone(),
+                                decision: "keep_local".to_string(),
+                            });
                             close = true;
                         }
                         if ui.button("Mantener remoto").clicked() {
-                            action = Some(ModalAction::ResolveConflict { conflict_id: conflict_id.clone(), decision: "keep_remote".to_string() });
+                            action = Some(ModalAction::ResolveConflict {
+                                conflict_id: conflict_id.clone(),
+                                decision: "keep_remote".to_string(),
+                            });
                             close = true;
                         }
                     }
@@ -1132,11 +1291,26 @@ impl SyncFilesUi {
 
         if let Some(a) = action {
             match a {
-                ModalAction::Rename { file_id, old_path, new_path } => self.do_rename(&file_id, &old_path, &new_path),
-                ModalAction::Move { file_id, old_path, new_path } => self.do_move_file(&file_id, &old_path, &new_path),
-                ModalAction::Copy { file_id, source_path, destination_path } => self.do_copy_file(&file_id, &source_path, &destination_path),
+                ModalAction::Rename {
+                    file_id,
+                    old_path,
+                    new_path,
+                } => self.do_rename(&file_id, &old_path, &new_path),
+                ModalAction::Move {
+                    file_id,
+                    old_path,
+                    new_path,
+                } => self.do_move_file(&file_id, &old_path, &new_path),
+                ModalAction::Copy {
+                    file_id,
+                    source_path,
+                    destination_path,
+                } => self.do_copy_file(&file_id, &source_path, &destination_path),
                 ModalAction::Delete { file_id, path } => self.do_delete_file(&file_id, &path),
-                ModalAction::ResolveConflict { conflict_id, decision } => self.resolve_conflict(&conflict_id, &decision),
+                ModalAction::ResolveConflict {
+                    conflict_id,
+                    decision,
+                } => self.resolve_conflict(&conflict_id, &decision),
             }
         }
         if close {
@@ -1218,14 +1392,22 @@ impl SyncFilesUi {
             let root_changed = new_root != self.config.sync_root;
             self.config.sync_root = new_root.clone();
             if let Err(e) = self.config.save() {
-                self.notify(NotificationKind::Error, format!("No se pudo guardar config: {}", e));
+                self.notify(
+                    NotificationKind::Error,
+                    format!("No se pudo guardar config: {}", e),
+                );
             } else {
                 self.notify(NotificationKind::Success, "Configuración guardada");
             }
             if server_changed {
-                if let Ok(client) = crate::network::SyncClient::new(&self.config.server_url, &self.config.device_id) {
+                if let Ok(client) =
+                    crate::network::SyncClient::new(&self.config.server_url, &self.config.device_id)
+                {
                     self.sync_client = Arc::new(client);
-                    self.notify(NotificationKind::Warning, "Servidor cambiado: vuelve a iniciar sesión");
+                    self.notify(
+                        NotificationKind::Warning,
+                        "Servidor cambiado: vuelve a iniciar sesión",
+                    );
                 }
             }
             if root_changed {
@@ -1295,11 +1477,29 @@ impl SyncFilesUi {
 }
 
 enum ModalAction {
-    Rename { file_id: String, old_path: String, new_path: String },
-    Move { file_id: String, old_path: String, new_path: String },
-    Copy { file_id: String, source_path: String, destination_path: String },
-    Delete { file_id: String, path: String },
-    ResolveConflict { conflict_id: String, decision: String },
+    Rename {
+        file_id: String,
+        old_path: String,
+        new_path: String,
+    },
+    Move {
+        file_id: String,
+        old_path: String,
+        new_path: String,
+    },
+    Copy {
+        file_id: String,
+        source_path: String,
+        destination_path: String,
+    },
+    Delete {
+        file_id: String,
+        path: String,
+    },
+    ResolveConflict {
+        conflict_id: String,
+        decision: String,
+    },
 }
 
 fn chrono_ms_ago(ms: i64) -> u64 {
@@ -1316,7 +1516,8 @@ impl eframe::App for SyncFilesUi {
                 match result {
                     Ok(_) => {
                         let metadata = self.metadata.lock().unwrap();
-                        let session_data = metadata.get_active_session()
+                        let session_data = metadata
+                            .get_active_session()
                             .ok()
                             .flatten()
                             .map(|s| (s.user_id.clone(), s.session_id.clone()));
@@ -1395,7 +1596,11 @@ impl eframe::App for SyncFilesUi {
                     if ui.button("Cerrar sesión").clicked() {
                         self.logout();
                     }
-                    let pause_label = if self.paused { "▶ Reanudar" } else { "⏸ Pausar" };
+                    let pause_label = if self.paused {
+                        "▶ Reanudar"
+                    } else {
+                        "⏸ Pausar"
+                    };
                     if ui.button(pause_label).clicked() {
                         self.toggle_pause();
                     }
@@ -1412,36 +1617,66 @@ impl eframe::App for SyncFilesUi {
                 .resizable(false)
                 .default_width(190.0)
                 .show(ctx, |ui| {
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("ESPACIO").small().strong());
-                if ui.selectable_label(self.view == View::Dashboard, "  Panel").clicked() {
-                    self.view = View::Dashboard;
-                }
-                if ui.selectable_label(self.view == View::Files, "  Mis archivos").clicked() {
-                    self.view = View::Files;
-                }
-                if ui.selectable_label(self.view == View::Queue, format!("  Cola ({})", self.queue_entries.len())).clicked() {
-                    self.view = View::Queue;
-                }
-                if ui.selectable_label(self.view == View::Conflicts, format!("  Conflictos ({})", self.conflicts.iter().filter(|c| !c.resolved).count())).clicked() {
-                    self.view = View::Conflicts;
-                }
-                if ui.selectable_label(self.view == View::Devices, "  Dispositivos").clicked() {
-                    self.view = View::Devices;
-                }
-                if ui.selectable_label(self.view == View::Activity, "  Actividad").clicked() {
-                    self.view = View::Activity;
-                }
-                ui.separator();
-                ui.label(egui::RichText::new("CONFIGURACIÓN").small().strong());
-                if ui.selectable_label(self.view == View::Settings, "  Preferencias").clicked() {
-                    self.view = View::Settings;
-                }
-                ui.label("Servidor");
-                ui.small(&self.config.server_url);
-                ui.add_space(8.0);
-                ui.label("Carpeta local");
-                ui.small(self.config.sync_root.display().to_string());
+                    ui.add_space(12.0);
+                    ui.label(egui::RichText::new("ESPACIO").small().strong());
+                    if ui
+                        .selectable_label(self.view == View::Dashboard, "  Panel")
+                        .clicked()
+                    {
+                        self.view = View::Dashboard;
+                    }
+                    if ui
+                        .selectable_label(self.view == View::Files, "  Mis archivos")
+                        .clicked()
+                    {
+                        self.view = View::Files;
+                    }
+                    if ui
+                        .selectable_label(
+                            self.view == View::Queue,
+                            format!("  Cola ({})", self.queue_entries.len()),
+                        )
+                        .clicked()
+                    {
+                        self.view = View::Queue;
+                    }
+                    if ui
+                        .selectable_label(
+                            self.view == View::Conflicts,
+                            format!(
+                                "  Conflictos ({})",
+                                self.conflicts.iter().filter(|c| !c.resolved).count()
+                            ),
+                        )
+                        .clicked()
+                    {
+                        self.view = View::Conflicts;
+                    }
+                    if ui
+                        .selectable_label(self.view == View::Devices, "  Dispositivos")
+                        .clicked()
+                    {
+                        self.view = View::Devices;
+                    }
+                    if ui
+                        .selectable_label(self.view == View::Activity, "  Actividad")
+                        .clicked()
+                    {
+                        self.view = View::Activity;
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("CONFIGURACIÓN").small().strong());
+                    if ui
+                        .selectable_label(self.view == View::Settings, "  Preferencias")
+                        .clicked()
+                    {
+                        self.view = View::Settings;
+                    }
+                    ui.label("Servidor");
+                    ui.small(&self.config.server_url);
+                    ui.add_space(8.0);
+                    ui.label("Carpeta local");
+                    ui.small(self.config.sync_root.display().to_string());
                 });
         }
 
@@ -1455,7 +1690,11 @@ impl eframe::App for SyncFilesUi {
                         ui.selectable_value(&mut self.view, View::Dashboard, "Panel");
                         ui.selectable_value(&mut self.view, View::Files, "Archivos");
                         ui.selectable_value(&mut self.view, View::Queue, "Cola");
-                        ui.selectable_value(&mut self.view, View::Conflicts, format!("Conflictos ({})", conflicts_count));
+                        ui.selectable_value(
+                            &mut self.view,
+                            View::Conflicts,
+                            format!("Conflictos ({})", conflicts_count),
+                        );
                         ui.selectable_value(&mut self.view, View::Devices, "Dispositivos");
                         ui.selectable_value(&mut self.view, View::Activity, "Actividad");
                         ui.selectable_value(&mut self.view, View::Settings, "Ajustes");
@@ -1502,8 +1741,10 @@ fn headless_main() {
     }
     std::fs::create_dir_all(&config.sync_root).expect("crear sync_root");
 
-    let sync_client = Arc::new(crate::network::SyncClient::new(&config.server_url, &config.device_id)
-        .expect("crear SyncClient"));
+    let sync_client = Arc::new(
+        crate::network::SyncClient::new(&config.server_url, &config.device_id)
+            .expect("crear SyncClient"),
+    );
     let metadata = Arc::new(std::sync::Mutex::new(
         crate::metadata::MetadataStore::new(config.clone()).expect("init MetadataStore"),
     ));
@@ -1520,15 +1761,19 @@ fn headless_main() {
         // Watcher + motor: el motor procesa cola persistente, pull y push.
         let metadata_cb = metadata.clone();
         let root = config.sync_root.clone();
-        let watcher = crate::watcher::FileWatcher::new(root, Arc::new(move |path_str| {
-            let store = metadata_cb.lock().unwrap();
-            if let Err(e) = store.enqueue(&path_str, "pending", None) {
-                tracing::warn!("headless: error encolando cambio: {e}");
-            }
-        }));
+        let watcher = crate::watcher::FileWatcher::new(
+            root,
+            Arc::new(move |path_str| {
+                let store = metadata_cb.lock().unwrap();
+                if let Err(e) = store.enqueue(&path_str, "pending", None) {
+                    tracing::warn!("headless: error encolando cambio: {e}");
+                }
+            }),
+        );
         let _watcher_handle = watcher.start().expect("iniciar watcher");
 
-        let engine = crate::sync::SyncEngine::new(config.clone(), sync_client.clone(), metadata.clone());
+        let engine =
+            crate::sync::SyncEngine::new(config.clone(), sync_client.clone(), metadata.clone());
         eprintln!("headless: motor iniciado; presionar Ctrl-C para salir");
         if let Err(e) = engine.run().await {
             eprintln!("headless: error del motor: {e}");
@@ -1561,7 +1806,10 @@ fn collect_files(root: &std::path::PathBuf, current: &std::path::PathBuf, files:
         };
         let is_dir = metadata.is_dir();
         files.push(UiFile {
-            name: path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or(relative.clone()),
+            name: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or(relative.clone()),
             path: relative,
             status: FileState::Local,
             size: if is_dir {

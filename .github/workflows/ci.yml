@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -32,7 +33,7 @@ jobs:
       - name: Cargo test (server)
         run: SF_HEALTH_PROBE_WRITE=0 cargo test --manifest-path syncfiles-server/Cargo.toml
 
-      - name: Cargo test (client, single-threaded: tests mutan env vars)
+      - name: 'Cargo test (client, single-threaded: tests mutan env vars)'
         run: cargo test --manifest-path syncfiles-client/Cargo.toml -- --test-threads=1
 
       - name: Cargo clippy (server, no warnings)
@@ -69,3 +70,121 @@ jobs:
           name: syncfiles-debug-apk
           path: syncfiles-android/app/build/outputs/apk/debug/*.apk
           retention-days: 7
+
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build server image
+        run: docker build -t syncfiles-ci .
+
+      - name: Validate Compose
+        run: docker compose config --quiet
+
+      - name: Validate cloud deployment dry-runs
+        env:
+          GCP_PROJECT: syncfiles-ci
+          GCP_IMAGE: syncfiles-ci:latest
+          SF_ADMIN_TOKEN: ci-dry-run
+          SF_USER_0_PASSWORD: ci-dry-run
+          AWS_ECS_IMAGE: syncfiles-ci:latest
+          AWS_EFS_FILESYSTEM_ID: fs-ci
+          AWS_EFS_ACCESS_POINT_ID: fsap-ci
+          AWS_EXECUTION_ROLE_ARN: arn:aws:iam::123456789012:role/ci-execution
+          AWS_TASK_ROLE_ARN: arn:aws:iam::123456789012:role/ci-task
+        run: |
+          SF_DEPLOY_ACTION=dry-run scripts/deploy-gcp.sh
+          SF_DEPLOY_ACTION=dry-run scripts/deploy-aws.sh
+
+  benchmark:
+    name: Benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release server
+        run: cargo build --release --manifest-path syncfiles-server/Cargo.toml
+
+      - name: Run reproducible benchmark
+        env:
+          SF_BENCH_SIZES: 1024,65536
+          SF_BENCH_ROUNDS: 2
+          SF_BENCH_CONCURRENCY: 2
+        run: scripts/benchmark.sh
+
+      - name: Upload benchmark results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncfiles-benchmark
+          path: /tmp/syncfiles-benchmark-*/results.csv
+          retention-days: 14
+
+  release:
+    name: Release artifacts
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [rust, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build release binaries
+        run: |
+          cargo build --release --manifest-path syncfiles-server/Cargo.toml
+          cargo build --release --manifest-path syncfiles-client/Cargo.toml
+          cargo build --release --manifest-path syncfiles-cli/Cargo.toml
+
+      - name: Test release binaries
+        run: |
+          cargo test --release --manifest-path syncfiles-models/Cargo.toml
+          SF_HEALTH_PROBE_WRITE=0 cargo test --release --manifest-path syncfiles-server/Cargo.toml
+          cargo test --release --manifest-path syncfiles-client/Cargo.toml -- --test-threads=1
+
+      - name: Clippy release
+        run: |
+          cargo clippy --release --manifest-path syncfiles-server/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --release --manifest-path syncfiles-client/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --release --manifest-path syncfiles-cli/Cargo.toml --all-targets -- -D warnings
+
+      - name: Build Android release
+        run: |
+          cd syncfiles-android
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Build debug binaries for E2E
+        run: |
+          cargo build --manifest-path syncfiles-server/Cargo.toml
+          cargo build --manifest-path syncfiles-cli/Cargo.toml
+
+      - name: Backup and restore E2E
+        run: scripts/e2e-backup-restore.sh
+
+      - name: Package Linux artifacts
+        env:
+          SF_VERSION: ${{ github.sha }}
+        run: scripts/package-release.sh linux-x86_64 dist
+
+      - name: Verify release artifacts
+        run: scripts/verify-release.sh dist linux-x86_64
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncfiles-release-${{ github.sha }}
+          path: dist/*
+          retention-days: 30

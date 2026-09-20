@@ -166,16 +166,37 @@ mod tests {
         let read = provider.read(user_id, path).await.unwrap();
         assert_eq!(read, content);
 
-        provider.rename(user_id, path, "docs/readme-v2.txt").await.unwrap();
+        provider
+            .rename(user_id, path, "docs/readme-v2.txt")
+            .await
+            .unwrap();
         assert!(!provider.exists(user_id, path).await.unwrap());
-        assert!(provider.exists(user_id, "docs/readme-v2.txt").await.unwrap());
+        assert!(provider
+            .exists(user_id, "docs/readme-v2.txt")
+            .await
+            .unwrap());
 
-        provider.copy(user_id, "docs/readme-v2.txt", "docs/readme-copy.txt").await.unwrap();
-        assert!(provider.exists(user_id, "docs/readme-copy.txt").await.unwrap());
+        provider
+            .copy(user_id, "docs/readme-v2.txt", "docs/readme-copy.txt")
+            .await
+            .unwrap();
+        assert!(provider
+            .exists(user_id, "docs/readme-copy.txt")
+            .await
+            .unwrap());
 
-        provider.delete(user_id, "docs/readme-v2.txt").await.unwrap();
-        assert!(!provider.exists(user_id, "docs/readme-v2.txt").await.unwrap());
-        assert!(provider.exists(user_id, "docs/readme-copy.txt").await.unwrap());
+        provider
+            .delete(user_id, "docs/readme-v2.txt")
+            .await
+            .unwrap();
+        assert!(!provider
+            .exists(user_id, "docs/readme-v2.txt")
+            .await
+            .unwrap());
+        assert!(provider
+            .exists(user_id, "docs/readme-copy.txt")
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
@@ -196,7 +217,10 @@ mod tests {
         provider.init().unwrap();
 
         let user_id = "user-test";
-        provider.write(user_id, "a/b/../c/file.txt", b"data").await.unwrap();
+        provider
+            .write(user_id, "a/b/../c/file.txt", b"data")
+            .await
+            .unwrap();
         assert!(provider.exists(user_id, "a/c/file.txt").await.unwrap());
     }
 }

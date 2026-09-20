@@ -2,17 +2,18 @@ use anyhow::Result;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use chrono::Utc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{info, warn, error};
-use std::sync::{Arc, Mutex};
+use tracing::{error, info, warn};
 
 use crate::config::Config;
-use crate::network::SyncClient;
 use crate::metadata::MetadataStore;
-use syncfiles_models::{FileEntry, ChangeEntry, UploadRequest};
+use crate::network::SyncClient;
+use syncfiles_models::{ChangeEntry, FileEntry, UploadRequest};
 
-static WAKEUP_RX: std::sync::OnceLock<std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>> = std::sync::OnceLock::new();
+static WAKEUP_RX: std::sync::OnceLock<std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>> =
+    std::sync::OnceLock::new();
 
 /// Estado compartido con la UI a través de un archivo JSON en data_dir.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -67,7 +68,8 @@ impl SyncEngine {
     }
 
     pub fn set_paused(&self, paused: bool) {
-        self.paused.store(paused, std::sync::atomic::Ordering::Relaxed);
+        self.paused
+            .store(paused, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub async fn run(&self) -> Result<()> {
@@ -82,14 +84,23 @@ impl SyncEngine {
             match self.sync_cycle().await {
                 Ok(_) => {
                     info!("Ciclo de sincronización completado");
-                    write_engine_status(true, self.paused.load(std::sync::atomic::Ordering::Relaxed));
+                    write_engine_status(
+                        true,
+                        self.paused.load(std::sync::atomic::Ordering::Relaxed),
+                    );
                 }
                 Err(e) => {
                     error!("Error en ciclo de sincronización: {}", e);
-                    write_engine_status(false, self.paused.load(std::sync::atomic::Ordering::Relaxed));
+                    write_engine_status(
+                        false,
+                        self.paused.load(std::sync::atomic::Ordering::Relaxed),
+                    );
                 }
             }
-            info!("Próximo poll en {} segundos", self.config.polling_interval_secs);
+            info!(
+                "Próximo poll en {} segundos",
+                self.config.polling_interval_secs
+            );
             // Espera interrumpible: "Sincronizar ahora" acorta la espera
             let mut waited = 0u64;
             while waited < self.config.polling_interval_secs * 1000 {
@@ -175,7 +186,12 @@ impl SyncEngine {
                 None => {
                     // Archivo nuevo (cliente apagado o primera ejecución)
                     let store = self.store.lock().unwrap();
-                    if store.get_file_by_relative_path(relative).ok().flatten().is_none() {
+                    if store
+                        .get_file_by_relative_path(relative)
+                        .ok()
+                        .flatten()
+                        .is_none()
+                    {
                         if let Err(e) = store.enqueue(relative, "pending", None) {
                             warn!("Error encolando nuevo archivo {}: {}", relative, e);
                         } else {
@@ -207,7 +223,10 @@ impl SyncEngine {
             }
             let store = self.store.lock().unwrap();
             match store.update_file_status(&entry.relative_path, "deleted") {
-                Ok(_) => info!("Delete local detectado por escaneo: {}", entry.relative_path),
+                Ok(_) => info!(
+                    "Delete local detectado por escaneo: {}",
+                    entry.relative_path
+                ),
                 Err(e) => warn!("Error marcando delete local {}: {}", entry.relative_path, e),
             }
         }
@@ -255,12 +274,21 @@ impl SyncEngine {
             let store = self.store.lock().unwrap();
             store.set_last_server_seq(diff.server_seq)?;
         }
-        info!("Pull completado: {} cambios, server_seq={}", diff.changes.len(), diff.server_seq);
+        info!(
+            "Pull completado: {} cambios, server_seq={}",
+            diff.changes.len(),
+            diff.server_seq
+        );
         Ok(())
     }
 
-    async fn download_remote_file(&self, session: &crate::metadata::Session, change: &ChangeEntry) -> Result<()> {
-        let resp = self.client
+    async fn download_remote_file(
+        &self,
+        session: &crate::metadata::Session,
+        change: &ChangeEntry,
+    ) -> Result<()> {
+        let resp = self
+            .client
             .download(&session.session_id, &change.file_id, &change.path_hash)
             .await?;
         self.apply_download(change, &resp.content).await
@@ -278,7 +306,10 @@ impl SyncEngine {
 
         let remote_relative = change.relative_path.clone().unwrap_or_default();
         if remote_relative.is_empty() {
-            info!("Rename remoto sin ruta nueva conocida (file_id={}), ignorando", change.file_id);
+            info!(
+                "Rename remoto sin ruta nueva conocida (file_id={}), ignorando",
+                change.file_id
+            );
             return Ok(());
         }
 
@@ -290,7 +321,10 @@ impl SyncEngine {
                     std::fs::create_dir_all(parent)?;
                 }
                 if let Err(e) = std::fs::rename(&old_local, &new_local) {
-                    warn!("Fallo renombrando local {:?} -> {:?}: {}", old_local, new_local, e);
+                    warn!(
+                        "Fallo renombrando local {:?} -> {:?}: {}",
+                        old_local, new_local, e
+                    );
                 } else {
                     info!("Renombrado local: {:?} -> {:?}", old_local, new_local);
                 }
@@ -316,11 +350,18 @@ impl SyncEngine {
             if local_path.exists() {
                 let store = self.store.lock().unwrap();
                 let _ = store.restore_to_pending(&file.file_id);
-                info!("Archivo reapareció en disco; vuelve a pending: {}", file.relative_path);
+                info!(
+                    "Archivo reapareció en disco; vuelve a pending: {}",
+                    file.relative_path
+                );
                 continue;
             }
 
-            match self.client.delete(&session.session_id, &file.file_id, &file.path_hash).await {
+            match self
+                .client
+                .delete(&session.session_id, &file.file_id, &file.path_hash)
+                .await
+            {
                 Ok(_) => {
                     let store = self.store.lock().unwrap();
                     store.mark_delete_synced(&file.file_id)?;
@@ -332,9 +373,15 @@ impl SyncEngine {
                     if err_str.contains("NOT_FOUND") {
                         let store = self.store.lock().unwrap();
                         store.mark_delete_synced(&file.file_id)?;
-                        info!("Delete ya aplicado server-side (NOT_FOUND): {}", file.relative_path);
+                        info!(
+                            "Delete ya aplicado server-side (NOT_FOUND): {}",
+                            file.relative_path
+                        );
                     } else {
-                        warn!("Error propagando delete de {}: {}", file.relative_path, err_str);
+                        warn!(
+                            "Error propagando delete de {}: {}",
+                            file.relative_path, err_str
+                        );
                     }
                 }
             }
@@ -409,7 +456,12 @@ impl SyncEngine {
                     if err_str.starts_with("CONFLICT:") {
                         let conflict_id = uuid::Uuid::new_v4().to_string();
                         let store = self.store.lock().unwrap();
-                        store.mark_conflict(&conflict_id, &file.file_id, &file.checksum, &payload.checksum)?;
+                        store.mark_conflict(
+                            &conflict_id,
+                            &file.file_id,
+                            &file.checksum,
+                            &payload.checksum,
+                        )?;
                         store.upsert_file(&FileEntry {
                             file_id: file.file_id.clone(),
                             user_id: file.user_id.clone(),
@@ -439,7 +491,10 @@ impl SyncEngine {
     }
 
     async fn apply_download(&self, change: &ChangeEntry, content: &str) -> Result<()> {
-        let local_path = self.config.sync_root.join(change.relative_path.as_deref().unwrap_or(&change.path_hash));
+        let local_path = self
+            .config
+            .sync_root
+            .join(change.relative_path.as_deref().unwrap_or(&change.path_hash));
         if let Some(parent) = local_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -470,7 +525,10 @@ impl SyncEngine {
     }
 
     async fn apply_delete(&self, change: &ChangeEntry) -> Result<()> {
-        let local_path = self.config.sync_root.join(change.relative_path.as_deref().unwrap_or(&change.path_hash));
+        let local_path = self
+            .config
+            .sync_root
+            .join(change.relative_path.as_deref().unwrap_or(&change.path_hash));
         if local_path.exists() {
             std::fs::remove_file(&local_path)?;
             info!("Borrado local: {:?}", local_path);
@@ -551,7 +609,11 @@ impl SyncEngine {
                     warn!("Reintento fallido ({}): {}", op.operation, err_str);
                     let store = self.store.lock().unwrap();
                     store.increment_attempts(&op.queue_id)?;
-                    let next_status = if err_str.starts_with("CONFLICT:") { "conflict" } else { "retry" };
+                    let next_status = if err_str.starts_with("CONFLICT:") {
+                        "conflict"
+                    } else {
+                        "retry"
+                    };
                     store.update_queue_status(&op.queue_id, next_status, Some(&err_str))?;
                 }
             }
@@ -563,7 +625,10 @@ impl SyncEngine {
 /// Escanea recursivamente un directorio devolviendo ruta relativa → checksum.
 /// Ignora archivos ocultos y de metadatos (`.DS_Store`, `.conflict_*` no: los
 /// conflictos preservados SÍ se sincronizan como archivos normales).
-fn scan_files(root: &std::path::Path, out: &mut std::collections::HashMap<String, String>) -> anyhow::Result<()> {
+fn scan_files(
+    root: &std::path::Path,
+    out: &mut std::collections::HashMap<String, String>,
+) -> anyhow::Result<()> {
     scan_files_rel(root, "", out)
 }
 
@@ -603,7 +668,8 @@ mod tests {
     use syncfiles_models::compute_checksum;
 
     fn tmp_dir(name: &str) -> std::path::PathBuf {
-        let tmp = std::env::temp_dir().join(format!("sf-sync-test-{}-{}", name, std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("sf-sync-test-{}-{}", name, std::process::id()));
         std::fs::remove_dir_all(&tmp).ok();
         std::fs::create_dir_all(&tmp).unwrap();
         tmp
@@ -641,7 +707,10 @@ mod tests {
         scan_files(&tmp, &mut out).unwrap();
         assert_eq!(out.len(), 2, "los dotfiles se ignoran: {:?}", out.keys());
         assert_eq!(out.get("a.txt").unwrap(), &compute_checksum(b"uno"));
-        let sub_key = out.keys().find(|k| k.ends_with("b.txt")).expect("b.txt escaneado");
+        let sub_key = out
+            .keys()
+            .find(|k| k.ends_with("b.txt"))
+            .expect("b.txt escaneado");
         assert_eq!(out.get(sub_key).unwrap(), &compute_checksum(b"dos"));
         assert!(sub_key.contains("sub"));
         std::fs::remove_dir_all(tmp).ok();
@@ -659,36 +728,40 @@ mod tests {
         // 'borrado.txt' synced (después lo eliminamos del disco).
         {
             let store = engine.store.lock().unwrap();
-            store.upsert_file(&FileEntry {
-                file_id: "f-cambiado".into(),
-                user_id: "u".into(),
-                device_id: "device-test".into(),
-                relative_path: "cambiado.txt".into(),
-                path_hash: syncfiles_models::compute_path_hash("cambiado.txt"),
-                checksum: compute_checksum(b"v1"),
-                size_bytes: 2,
-                modified_at: 1,
-                synced_at: Some(1),
-                status: "synced".into(),
-                last_sync_version: 0,
-                deleted_at: None,
-                content: None,
-            }).unwrap();
-            store.upsert_file(&FileEntry {
-                file_id: "f-borrado".into(),
-                user_id: "u".into(),
-                device_id: "device-test".into(),
-                relative_path: "borrado.txt".into(),
-                path_hash: syncfiles_models::compute_path_hash("borrado.txt"),
-                checksum: compute_checksum(b"chau"),
-                size_bytes: 4,
-                modified_at: 1,
-                synced_at: Some(1),
-                status: "synced".into(),
-                last_sync_version: 0,
-                deleted_at: None,
-                content: None,
-            }).unwrap();
+            store
+                .upsert_file(&FileEntry {
+                    file_id: "f-cambiado".into(),
+                    user_id: "u".into(),
+                    device_id: "device-test".into(),
+                    relative_path: "cambiado.txt".into(),
+                    path_hash: syncfiles_models::compute_path_hash("cambiado.txt"),
+                    checksum: compute_checksum(b"v1"),
+                    size_bytes: 2,
+                    modified_at: 1,
+                    synced_at: Some(1),
+                    status: "synced".into(),
+                    last_sync_version: 0,
+                    deleted_at: None,
+                    content: None,
+                })
+                .unwrap();
+            store
+                .upsert_file(&FileEntry {
+                    file_id: "f-borrado".into(),
+                    user_id: "u".into(),
+                    device_id: "device-test".into(),
+                    relative_path: "borrado.txt".into(),
+                    path_hash: syncfiles_models::compute_path_hash("borrado.txt"),
+                    checksum: compute_checksum(b"chau"),
+                    size_bytes: 4,
+                    modified_at: 1,
+                    synced_at: Some(1),
+                    status: "synced".into(),
+                    last_sync_version: 0,
+                    deleted_at: None,
+                    content: None,
+                })
+                .unwrap();
         }
 
         // Borrar del disco ANTES del reconcile → debe detectarse como delete local
@@ -699,13 +772,22 @@ mod tests {
         {
             let store = engine.store.lock().unwrap();
             // Nuevo archivo detectado → pending
-            let nuevo = store.get_file_by_relative_path("nuevo.txt").unwrap().unwrap();
+            let nuevo = store
+                .get_file_by_relative_path("nuevo.txt")
+                .unwrap()
+                .unwrap();
             assert_eq!(nuevo.status, "pending");
             // Checksum cambió → vuelve a pending
-            let cambiado = store.get_file_by_relative_path("cambiado.txt").unwrap().unwrap();
+            let cambiado = store
+                .get_file_by_relative_path("cambiado.txt")
+                .unwrap()
+                .unwrap();
             assert_eq!(cambiado.status, "pending");
             // Archivo desaparecido → deleted
-            let borrado = store.get_file_by_relative_path("borrado.txt").unwrap().unwrap();
+            let borrado = store
+                .get_file_by_relative_path("borrado.txt")
+                .unwrap()
+                .unwrap();
             assert_eq!(borrado.status, "deleted");
             // Dotfiles no se marcan deleted aunque no estén en el scan
         }
@@ -718,28 +800,33 @@ mod tests {
         let (engine, _) = engine_with(&tmp);
         {
             let store = engine.store.lock().unwrap();
-            store.upsert_file(&FileEntry {
-                file_id: "f-conf".into(),
-                user_id: "u".into(),
-                device_id: "device-test".into(),
-                relative_path: ".conflict_preservado.txt".into(),
-                path_hash: syncfiles_models::compute_path_hash(".conflict_preservado.txt"),
-                checksum: compute_checksum(b"x"),
-                size_bytes: 1,
-                modified_at: 1,
-                synced_at: Some(1),
-                status: "synced".into(),
-                last_sync_version: 0,
-                deleted_at: None,
-                content: None,
-            }).unwrap();
+            store
+                .upsert_file(&FileEntry {
+                    file_id: "f-conf".into(),
+                    user_id: "u".into(),
+                    device_id: "device-test".into(),
+                    relative_path: ".conflict_preservado.txt".into(),
+                    path_hash: syncfiles_models::compute_path_hash(".conflict_preservado.txt"),
+                    checksum: compute_checksum(b"x"),
+                    size_bytes: 1,
+                    modified_at: 1,
+                    synced_at: Some(1),
+                    status: "synced".into(),
+                    last_sync_version: 0,
+                    deleted_at: None,
+                    content: None,
+                })
+                .unwrap();
         }
         // El archivo existe pero empieza con '.' → el scan no lo ve y NO debe marcarse deleted
         std::fs::write(tmp.join(".conflict_preservado.txt"), b"x").unwrap();
         engine.reconcile_local_folder().await;
         {
             let store = engine.store.lock().unwrap();
-            let entry = store.get_file_by_relative_path(".conflict_preservado.txt").unwrap().unwrap();
+            let entry = store
+                .get_file_by_relative_path(".conflict_preservado.txt")
+                .unwrap()
+                .unwrap();
             assert_eq!(entry.status, "synced");
         }
         std::fs::remove_dir_all(tmp).ok();
@@ -774,21 +861,23 @@ mod tests {
         // Con fila local existente: la ruta se actualiza en la DB
         {
             let store = engine.store.lock().unwrap();
-            store.upsert_file(&FileEntry {
-                file_id: "f-rename-2".into(),
-                user_id: "u".into(),
-                device_id: "otro-device".into(),
-                relative_path: "docs/viejo2.txt".into(),
-                path_hash: syncfiles_models::compute_path_hash("docs/viejo2.txt"),
-                checksum: compute_checksum(b"contenido"),
-                size_bytes: 8,
-                modified_at: 1,
-                synced_at: Some(1),
-                status: "synced".into(),
-                last_sync_version: 0,
-                deleted_at: None,
-                content: None,
-            }).unwrap();
+            store
+                .upsert_file(&FileEntry {
+                    file_id: "f-rename-2".into(),
+                    user_id: "u".into(),
+                    device_id: "otro-device".into(),
+                    relative_path: "docs/viejo2.txt".into(),
+                    path_hash: syncfiles_models::compute_path_hash("docs/viejo2.txt"),
+                    checksum: compute_checksum(b"contenido"),
+                    size_bytes: 8,
+                    modified_at: 1,
+                    synced_at: Some(1),
+                    status: "synced".into(),
+                    last_sync_version: 0,
+                    deleted_at: None,
+                    content: None,
+                })
+                .unwrap();
         }
         std::fs::write(tmp.join("docs").join("viejo2.txt"), b"contenido").unwrap();
         let change2 = ChangeEntry {
@@ -830,7 +919,10 @@ mod tests {
             device_id: "otro-device".into(),
             content: Some(content_b64),
         };
-        engine.apply_download(&change, change.content.as_deref().unwrap()).await.unwrap();
+        engine
+            .apply_download(&change, change.content.as_deref().unwrap())
+            .await
+            .unwrap();
 
         let written = std::fs::read(tmp.join("carpeta").join("descargado.txt")).unwrap();
         assert_eq!(written, b"contenido bajo");

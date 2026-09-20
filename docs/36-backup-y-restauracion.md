@@ -92,34 +92,34 @@ Script de validación que:
 ./scripts/e2e-backup-restore.sh
 ```
 
-## 6. Restore Manual (Procedimiento de Emergencia)
+### 5.1. Evidencia de ejecución
 
-### 6.1. Restaurar metadatos (SQLite)
+Ejecutado el 2026-09-20 en macOS con el servidor y el CLI reconstruidos localmente:
 
-```bash
-# 1. Detener el server
-systemctl stop syncfiles-server
-
-# 2. Hacer backup de la DB corrompida (por si acaso)
-cp data/syncfiles.db data/syncfiles.db.corrupt
-
-# 3. Restaurar desde backup
-sqlite3 data/syncfiles.db "VACUUM INTO 'data/syncfiles-restore.db'"
-mv data/syncfiles.db data/syncfiles.db.bak
-cp data/backups/metadata_20260916_0200.db data/syncfiles.db
-
-# 4. Restaurar storage
-rm -rf data/storage/users/
-tar -xzf data/backups/backup_20260916_0200.tar.gz -C /tmp/
-cp -r /tmp/data/storage/users/ data/storage/
+```text
+E2E Backup & Restore Test: PASS
+Archivos restaurados: 2
+test1.txt: b0ccf3faeb6bf186a82f532a8466b8a969592c20e978d5cab6e1ba76947ee0df
+test2.bin: 527d55f48f1a6bb55b89fb52cd21901b72ab8d7dcea58f437a02862c4f2bbcf5
+Backup verificado: /tmp/syncfiles-backup-e2e/backups/backup_20260919_210409.tar.gz
 ```
 
-### 6.2. Verificación post-restore
+El script ahora usa `sha256sum`, `shasum` o Python según la plataforma y limpia el servidor en caso de fallo.
 
-1. `sqlite3 data/syncfiles.db "PRAGMA integrity_check"` → `ok`
-2. `/health/ready` responde 200.
-3. `cargo test --manifest-path syncfiles-server/Cargo.toml` → todos pass.
-4. Checksums de archivos verificados contra el backup.
+## 6. Restore manual y script automatizado
+
+El procedimiento operativo completo está en [`docs/53-recuperacion-backups.md`](53-recuperacion-backups.md). El script `scripts/restore.sh` verifica el checksum, extrae el archive en un directorio temporal, valida SQLite, comprueba checksums/tamaños de los archivos activos y conserva el destino anterior con sufijo `.pre-restore-*`.
+
+```bash
+sudo systemctl stop syncfiles-server
+sudo SF_DATABASE_URL=sqlite:/var/lib/syncfiles/db/syncfiles.db \
+  SF_STORAGE_ROOT=/var/lib/syncfiles/storage \
+  SF_RESTORE_FORCE=1 \
+  /opt/syncfiles/restore.sh /var/lib/syncfiles/backups/backup_20260920_020000.tar.gz
+sudo systemctl start syncfiles-server
+```
+
+No se usa `VACUUM INTO ... FROM`: la copia de backup ya es una base SQLite válida y se instala directamente tras validarse.
 
 ## 7. Rotación y Retención
 

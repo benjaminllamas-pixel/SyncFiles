@@ -1,9 +1,9 @@
 use anyhow::Result;
-use rusqlite::{Connection, params};
+use chrono::Utc;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tracing::info;
-use chrono::Utc;
 
 use crate::config::Config;
 use syncfiles_models::*;
@@ -112,22 +112,27 @@ impl MetadataStore {
     pub fn get_active_session(&self) -> Result<Option<SessionRecord>> {
         let mut stmt = self.conn.prepare("SELECT session_id, user_id, device_id, token_hash, expires_at, revoked_at, status FROM sessions WHERE status = 'active' AND revoked_at IS NULL AND expires_at > ?1")?;
         let now = Utc::now().timestamp_millis();
-        let result = stmt.query_row(params![now], |row| {
-            Ok(SessionRecord {
-                session_id: row.get(0)?,
-                user_id: row.get(1)?,
-                device_id: row.get(2)?,
-                token_hash: row.get(3)?,
-                expires_at: row.get(4)?,
-                revoked_at: row.get(5)?,
-                status: row.get(6)?,
+        let result = stmt
+            .query_row(params![now], |row| {
+                Ok(SessionRecord {
+                    session_id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    device_id: row.get(2)?,
+                    token_hash: row.get(3)?,
+                    expires_at: row.get(4)?,
+                    revoked_at: row.get(5)?,
+                    status: row.get(6)?,
+                })
             })
-        }).ok();
+            .ok();
         Ok(result)
     }
 
     pub fn revoke_session(&self) -> Result<()> {
-        self.conn.execute("UPDATE sessions SET status = 'revoked', revoked_at = ?1 WHERE status = 'active'", params![Utc::now().timestamp_millis()])?;
+        self.conn.execute(
+            "UPDATE sessions SET status = 'revoked', revoked_at = ?1 WHERE status = 'active'",
+            params![Utc::now().timestamp_millis()],
+        )?;
         Ok(())
     }
 
@@ -215,49 +220,58 @@ impl MetadataStore {
 
     pub fn get_file_by_id(&self, file_id: &str) -> Result<Option<FileEntry>> {
         let mut stmt = self.conn.prepare("SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at FROM files WHERE file_id = ?1")?;
-        let result = stmt.query_row(params![file_id], |row| {
-            Ok(FileEntry {
-                file_id: row.get(0)?,
-                user_id: row.get(1)?,
-                device_id: row.get(2)?,
-                relative_path: row.get(3)?,
-                path_hash: row.get(4)?,
-                checksum: row.get(5)?,
-                size_bytes: row.get(6)?,
-                modified_at: row.get(7)?,
-                synced_at: row.get(8)?,
-                status: row.get(9)?,
-                last_sync_version: row.get(10)?,
-                deleted_at: row.get(11)?,
-                content: None,
+        let result = stmt
+            .query_row(params![file_id], |row| {
+                Ok(FileEntry {
+                    file_id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    device_id: row.get(2)?,
+                    relative_path: row.get(3)?,
+                    path_hash: row.get(4)?,
+                    checksum: row.get(5)?,
+                    size_bytes: row.get(6)?,
+                    modified_at: row.get(7)?,
+                    synced_at: row.get(8)?,
+                    status: row.get(9)?,
+                    last_sync_version: row.get(10)?,
+                    deleted_at: row.get(11)?,
+                    content: None,
+                })
             })
-        }).ok();
+            .ok();
         Ok(result)
     }
 
     pub fn get_file_by_relative_path(&self, relative_path: &str) -> Result<Option<FileEntry>> {
         let mut stmt = self.conn.prepare("SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at FROM files WHERE relative_path = ?1")?;
-        let result = stmt.query_row(params![relative_path], |row| {
-            Ok(FileEntry {
-                file_id: row.get(0)?,
-                user_id: row.get(1)?,
-                device_id: row.get(2)?,
-                relative_path: row.get(3)?,
-                path_hash: row.get(4)?,
-                checksum: row.get(5)?,
-                size_bytes: row.get(6)?,
-                modified_at: row.get(7)?,
-                synced_at: row.get(8)?,
-                status: row.get(9)?,
-                last_sync_version: row.get(10)?,
-                deleted_at: row.get(11)?,
-                content: None,
+        let result = stmt
+            .query_row(params![relative_path], |row| {
+                Ok(FileEntry {
+                    file_id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    device_id: row.get(2)?,
+                    relative_path: row.get(3)?,
+                    path_hash: row.get(4)?,
+                    checksum: row.get(5)?,
+                    size_bytes: row.get(6)?,
+                    modified_at: row.get(7)?,
+                    synced_at: row.get(8)?,
+                    status: row.get(9)?,
+                    last_sync_version: row.get(10)?,
+                    deleted_at: row.get(11)?,
+                    content: None,
+                })
             })
-        }).ok();
+            .ok();
         Ok(result)
     }
 
-    pub fn update_file_path(&self, file_id: &str, relative_path: &str, path_hash: &str) -> Result<()> {
+    pub fn update_file_path(
+        &self,
+        file_id: &str,
+        relative_path: &str,
+        path_hash: &str,
+    ) -> Result<()> {
         let now = Utc::now().timestamp_millis();
         self.conn.execute(
             "UPDATE files SET relative_path = ?1, path_hash = ?2, modified_at = ?3 WHERE file_id = ?4",
@@ -286,7 +300,14 @@ impl MetadataStore {
         Ok(())
     }
 
-    pub fn queue_op(&self, queue_id: &str, file_id: &str, operation: &str, idempotency_key: &str, payload: Option<String>) -> Result<()> {
+    pub fn queue_op(
+        &self,
+        queue_id: &str,
+        file_id: &str,
+        operation: &str,
+        idempotency_key: &str,
+        payload: Option<String>,
+    ) -> Result<()> {
         let now = Utc::now().timestamp_millis();
         self.conn.execute(
             "INSERT OR REPLACE INTO sync_queue (queue_id, file_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error) VALUES (?1, ?2, ?3, 'queued', 0, ?4, ?5, ?6, ?6, NULL)",
@@ -337,24 +358,31 @@ impl MetadataStore {
 
     pub fn get_queue_entry(&self, queue_id: &str) -> Result<Option<SyncQueueEntry>> {
         let mut stmt = self.conn.prepare("SELECT queue_id, file_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error FROM sync_queue WHERE queue_id = ?1")?;
-        let result = stmt.query_row(params![queue_id], |row| {
-            Ok(SyncQueueEntry {
-                queue_id: row.get(0)?,
-                file_id: row.get(1)?,
-                operation: row.get(2)?,
-                status: row.get(3)?,
-                attempts: row.get(4)?,
-                idempotency_key: row.get(5)?,
-                payload_json: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-                last_error: row.get(9)?,
+        let result = stmt
+            .query_row(params![queue_id], |row| {
+                Ok(SyncQueueEntry {
+                    queue_id: row.get(0)?,
+                    file_id: row.get(1)?,
+                    operation: row.get(2)?,
+                    status: row.get(3)?,
+                    attempts: row.get(4)?,
+                    idempotency_key: row.get(5)?,
+                    payload_json: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                    last_error: row.get(9)?,
+                })
             })
-        }).ok();
+            .ok();
         Ok(result)
     }
 
-    pub fn update_queue_status(&self, queue_id: &str, status: &str, error: Option<&str>) -> Result<()> {
+    pub fn update_queue_status(
+        &self,
+        queue_id: &str,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
         let now = Utc::now().timestamp_millis();
         self.conn.execute(
             "UPDATE sync_queue SET status = ?1, updated_at = ?2, last_error = ?3 WHERE queue_id = ?4",
@@ -364,11 +392,20 @@ impl MetadataStore {
     }
 
     pub fn increment_attempts(&self, queue_id: &str) -> Result<()> {
-        self.conn.execute("UPDATE sync_queue SET attempts = attempts + 1, updated_at = ?1 WHERE queue_id = ?2", params![Utc::now().timestamp_millis(), queue_id])?;
+        self.conn.execute(
+            "UPDATE sync_queue SET attempts = attempts + 1, updated_at = ?1 WHERE queue_id = ?2",
+            params![Utc::now().timestamp_millis(), queue_id],
+        )?;
         Ok(())
     }
 
-    pub fn mark_conflict(&self, conflict_id: &str, file_id: &str, local_checksum: &str, remote_checksum: &str) -> Result<()> {
+    pub fn mark_conflict(
+        &self,
+        conflict_id: &str,
+        file_id: &str,
+        local_checksum: &str,
+        remote_checksum: &str,
+    ) -> Result<()> {
         let now = Utc::now().timestamp_millis();
         self.conn.execute(
             "INSERT INTO conflicts (conflict_id, file_id, device_local, device_remote, local_checksum, remote_checksum, strategy, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'last_write_wins', ?7)",
@@ -411,7 +448,9 @@ impl MetadataStore {
     }
 
     pub fn get_last_server_seq(&self) -> Result<i64> {
-        let mut stmt = self.conn.prepare("SELECT CAST(value AS INTEGER) FROM metadata WHERE key = 'last_server_seq'")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT CAST(value AS INTEGER) FROM metadata WHERE key = 'last_server_seq'")?;
         let result = stmt.query_row([], |row| row.get::<_, i64>(0)).unwrap_or(0);
         Ok(result)
     }
@@ -465,7 +504,9 @@ impl MetadataStore {
     }
 
     pub fn get_devices(&self) -> Result<Vec<DeviceRecord>> {
-        let mut stmt = self.conn.prepare("SELECT device_id, platform, device_name, last_seen_at FROM devices")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT device_id, platform, device_name, last_seen_at FROM devices")?;
         let rows = stmt.query_map([], |row| {
             Ok(DeviceRecord {
                 device_id: row.get(0)?,
@@ -597,10 +638,16 @@ mod tests {
         assert_eq!(found.file_id, entry.file_id);
         assert_eq!(found.status, "synced");
 
-        let by_id = store.get_file_by_id(&entry.file_id).unwrap().expect("por id");
+        let by_id = store
+            .get_file_by_id(&entry.file_id)
+            .unwrap()
+            .expect("por id");
         assert_eq!(by_id.relative_path, "docs/a.txt");
 
-        assert!(store.get_file_by_relative_path("no-existe.txt").unwrap().is_none());
+        assert!(store
+            .get_file_by_relative_path("no-existe.txt")
+            .unwrap()
+            .is_none());
         cleanup(&tmp);
     }
 
@@ -620,15 +667,22 @@ mod tests {
     #[test]
     fn rename_updates_path_and_hash() {
         let (store, tmp) = store_in_dir("rename");
-        store.upsert_file(&sample_file("docs/viejo.txt", "synced")).unwrap();
+        store
+            .upsert_file(&sample_file("docs/viejo.txt", "synced"))
+            .unwrap();
 
-        store.rename_local_path("docs/viejo.txt", "docs/nuevo.txt").unwrap();
+        store
+            .rename_local_path("docs/viejo.txt", "docs/nuevo.txt")
+            .unwrap();
         let renamed = store
             .get_file_by_relative_path("docs/nuevo.txt")
             .unwrap()
             .expect("renombrado");
         assert_eq!(renamed.path_hash, compute_path_hash("docs/nuevo.txt"));
-        assert!(store.get_file_by_relative_path("docs/viejo.txt").unwrap().is_none());
+        assert!(store
+            .get_file_by_relative_path("docs/viejo.txt")
+            .unwrap()
+            .is_none());
         cleanup(&tmp);
     }
 
@@ -655,7 +709,13 @@ mod tests {
 
         let queue_id = uuid::Uuid::new_v4().to_string();
         store
-            .queue_op(&queue_id, &file.file_id, "upload", "idem-1", Some("{\"k\":1}".into()))
+            .queue_op(
+                &queue_id,
+                &file.file_id,
+                "upload",
+                "idem-1",
+                Some("{\"k\":1}".into()),
+            )
             .unwrap();
 
         let entry = store.get_queue_entry(&queue_id).unwrap().unwrap();
@@ -676,14 +736,26 @@ mod tests {
         store.upsert_file(&file).unwrap();
         let queue_id = uuid::Uuid::new_v4().to_string();
         store
-            .queue_op(&queue_id, &file.file_id, "upload", "idem-2", Some("{\"k\":2}".into()))
+            .queue_op(
+                &queue_id,
+                &file.file_id,
+                "upload",
+                "idem-2",
+                Some("{\"k\":2}".into()),
+            )
             .unwrap();
         // El intento falla: pasa a 'retry' con error, intentos incrementados.
-        store.update_queue_status(&queue_id, "retry", Some("HTTP 400")).unwrap();
+        store
+            .update_queue_status(&queue_id, "retry", Some("HTTP 400"))
+            .unwrap();
         store.increment_attempts(&queue_id).unwrap();
 
         // "Reinicio": nueva MetadataStore sobre el mismo archivo DB.
-        let reopened = MetadataStore::with_path(test_config(&tmp.join("sync")), &tmp.join("sync").join("syncfiles.db")).unwrap();
+        let reopened = MetadataStore::with_path(
+            test_config(&tmp.join("sync")),
+            &tmp.join("sync").join("syncfiles.db"),
+        )
+        .unwrap();
         let queued = reopened.get_queued_ops().unwrap();
         assert_eq!(queued.len(), 1);
         assert_eq!(queued[0].status, "retry");
@@ -691,7 +763,9 @@ mod tests {
         assert_eq!(queued[0].last_error.as_deref(), Some("HTTP 400"));
 
         // done ya no debe volver a listarse por get_queued_ops.
-        reopened.update_queue_status(&queue_id, "done", None).unwrap();
+        reopened
+            .update_queue_status(&queue_id, "done", None)
+            .unwrap();
         assert!(reopened.get_queued_ops().unwrap().is_empty());
         cleanup(&tmp);
     }
@@ -742,7 +816,11 @@ mod tests {
         store.set_last_server_seq(41).unwrap();
         assert_eq!(store.get_last_server_seq().unwrap(), 41);
 
-        let reopened = MetadataStore::with_path(test_config(&tmp.join("sync")), &tmp.join("sync").join("syncfiles.db")).unwrap();
+        let reopened = MetadataStore::with_path(
+            test_config(&tmp.join("sync")),
+            &tmp.join("sync").join("syncfiles.db"),
+        )
+        .unwrap();
         assert_eq!(reopened.get_last_server_seq().unwrap(), 41);
         cleanup(&tmp);
     }
@@ -756,7 +834,10 @@ mod tests {
             MetadataStore::hash_file_at(&file_path).unwrap(),
             compute_checksum(b"hola")
         );
-        assert_eq!(store.hash_file(&file_path).unwrap(), compute_checksum(b"hola"));
+        assert_eq!(
+            store.hash_file(&file_path).unwrap(),
+            compute_checksum(b"hola")
+        );
         cleanup(&tmp);
     }
 
@@ -790,7 +871,10 @@ mod tests {
 
         // Si reaparece en disco, vuelve a 'pending'
         store.restore_to_pending(&entry.file_id).unwrap();
-        let restored = store.get_file_by_relative_path("gone.txt").unwrap().unwrap();
+        let restored = store
+            .get_file_by_relative_path("gone.txt")
+            .unwrap()
+            .unwrap();
         assert_eq!(restored.status, "pending");
         assert!(restored.deleted_at.is_none());
         cleanup(&tmp);

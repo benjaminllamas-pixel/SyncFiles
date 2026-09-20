@@ -1,6 +1,6 @@
-pub use syncfiles_models::*;
-use sqlx::FromRow;
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+pub use syncfiles_models::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct UserRow {

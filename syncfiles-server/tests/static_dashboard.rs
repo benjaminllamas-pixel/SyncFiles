@@ -15,7 +15,8 @@ const DEVICE_ID: &str = "device-web-001";
 async fn no_cache_statics(
     req: actix_web::dev::ServiceRequest,
     next: actix_web::middleware::Next<actix_web::body::EitherBody<BoxBody>>,
-) -> Result<actix_web::dev::ServiceResponse<actix_web::body::EitherBody<BoxBody>>, actix_web::Error> {
+) -> Result<actix_web::dev::ServiceResponse<actix_web::body::EitherBody<BoxBody>>, actix_web::Error>
+{
     let path = req.path().to_owned();
     let mut res = next.call(req).await?;
     if !path.starts_with("/api/") {
@@ -52,7 +53,11 @@ async fn setup() -> Arc<AppState> {
 
 async fn make_web_app(
     state: Arc<AppState>,
-) -> impl Service<Request, Response = ServiceResponse<actix_web::body::EitherBody<BoxBody>>, Error = actix_web::Error> {
+) -> impl Service<
+    Request,
+    Response = ServiceResponse<actix_web::body::EitherBody<BoxBody>>,
+    Error = actix_web::Error,
+> {
     let static_dir = static_dir();
     test::init_service(
         App::new()
@@ -62,7 +67,10 @@ async fn make_web_app(
             .service(
                 web::scope("/api/v1")
                     .route("/auth/login", web::post().to(handlers::login_handler))
-                    .route("/session/status", web::get().to(handlers::session_status_handler))
+                    .route(
+                        "/session/status",
+                        web::get().to(handlers::session_status_handler),
+                    )
                     .default_service(web::route().to(handlers::not_found)),
             )
             .service(web::redirect("/ui", "/"))
@@ -86,8 +94,14 @@ async fn root_serves_dashboard_index() {
 
     let body = test::read_body(resp).await;
     let html = String::from_utf8(body.to_vec()).unwrap();
-    assert!(html.contains("SyncFiles"), "index.html debe contener el título de la app");
-    assert!(html.contains("app.js"), "index.html debe cargar el script del dashboard");
+    assert!(
+        html.contains("SyncFiles"),
+        "index.html debe contener el título de la app"
+    );
+    assert!(
+        html.contains("app.js"),
+        "index.html debe cargar el script del dashboard"
+    );
 }
 
 #[actix_web::test]
@@ -120,11 +134,17 @@ async fn static_assets_force_revalidation() {
             .get("cache-control")
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default();
-        assert_eq!(cc, "no-cache", "{} debe llevar Cache-Control: no-cache", uri);
+        assert_eq!(
+            cc, "no-cache",
+            "{} debe llevar Cache-Control: no-cache",
+            uri
+        );
     }
 
     // Las rutas de API no se tocan
-    let req = test::TestRequest::get().uri("/api/v1/no-existe").to_request();
+    let req = test::TestRequest::get()
+        .uri("/api/v1/no-existe")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 404);
     assert!(!resp.headers().contains_key("cache-control"));
@@ -137,7 +157,11 @@ async fn ui_alias_redirects_to_root() {
 
     let req = test::TestRequest::get().uri("/ui").to_request();
     let resp = test::call_service(&app, req).await;
-    assert!(resp.status() == 307 || resp.status() == 308, "esperaba redirect, obtuve {}", resp.status());
+    assert!(
+        resp.status() == 307 || resp.status() == 308,
+        "esperaba redirect, obtuve {}",
+        resp.status()
+    );
     let location = resp
         .headers()
         .get("Location")
@@ -176,7 +200,9 @@ async fn unknown_api_route_returns_404_json() {
     let state = setup().await;
     let app = make_web_app(state).await;
 
-    let req = test::TestRequest::get().uri("/api/v1/no-existe").to_request();
+    let req = test::TestRequest::get()
+        .uri("/api/v1/no-existe")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 404);
 }
@@ -188,7 +214,9 @@ async fn spa_fallback_unknown_path_serves_index() {
 
     // rutas desconocidas fuera de /api deben caer en el servicio de archivos
     // (actix-files devuelve 404 de archivo, no rompe la app)
-    let req = test::TestRequest::get().uri("/ruta-no-existente.js").to_request();
+    let req = test::TestRequest::get()
+        .uri("/ruta-no-existente.js")
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 404);
 }
@@ -204,19 +232,36 @@ async fn dashboard_html_contains_fase6_features() {
     let html = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
 
     // Fase 6: subida, acciones de archivo, cola, revocación, modal
-    assert!(html.contains("upload-zone"), "debe existir la dropzone de subida");
+    assert!(
+        html.contains("upload-zone"),
+        "debe existir la dropzone de subida"
+    );
     assert!(html.contains("view-queue"), "debe existir la vista Cola");
-    assert!(html.contains("modal-overlay"), "debe existir el modal de rename/move/copy");
-    assert!(html.contains("files-diff-hint"), "debe existir el hint de diff");
-    assert!(html.contains("queue-pending-only"), "debe existir el filtro de pendientes");
+    assert!(
+        html.contains("modal-overlay"),
+        "debe existir el modal de rename/move/copy"
+    );
+    assert!(
+        html.contains("files-diff-hint"),
+        "debe existir el hint de diff"
+    );
+    assert!(
+        html.contains("queue-pending-only"),
+        "debe existir el filtro de pendientes"
+    );
 
     let req = test::TestRequest::get().uri("/app.js").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let js = String::from_utf8(test::read_body(resp).await.to_vec()).unwrap();
     for feature in [
-        "/sync/upload", "/sync/rename", "/sync/move", "/sync/copy",
-        "/sync/diff", "/devices/revoke", "/queue",
+        "/sync/upload",
+        "/sync/rename",
+        "/sync/move",
+        "/sync/copy",
+        "/sync/diff",
+        "/devices/revoke",
+        "/queue",
     ] {
         assert!(js.contains(feature), "app.js debe llamar a {}", feature);
     }

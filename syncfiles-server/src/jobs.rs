@@ -77,13 +77,15 @@ pub fn spawn_background_jobs(pool: SqlitePool) {
 }
 
 async fn prune_audit_log(pool: &SqlitePool) -> anyhow::Result<()> {
-    let cutoff = chrono::Utc::now().timestamp_millis()
-        - (AUDIT_RETENTION_DAYS * 86400 * 1000);
+    let cutoff = chrono::Utc::now().timestamp_millis() - (AUDIT_RETENTION_DAYS * 86400 * 1000);
     let result = sqlx::query("DELETE FROM audit_log WHERE created_at < ?")
         .bind(cutoff)
         .execute(pool)
         .await?;
-    tracing::info!("prune_audit_log: {} filas eliminadas", result.rows_affected());
+    tracing::info!(
+        "prune_audit_log: {} filas eliminadas",
+        result.rows_affected()
+    );
     Ok(())
 }
 
@@ -107,25 +109,28 @@ async fn vacuum_optimize(pool: &SqlitePool) -> anyhow::Result<()> {
 }
 
 async fn prune_sessions_expired(pool: &SqlitePool) -> anyhow::Result<()> {
-    let cutoff = chrono::Utc::now().timestamp_millis()
-        - (SESSION_RETENTION_DAYS * 86400 * 1000);
-    let result = sqlx::query(
-        "DELETE FROM sessions WHERE status != 'active' AND created_at < ?"
-    )
-    .bind(cutoff)
-    .execute(pool)
-    .await?;
-    tracing::info!("prune_sessions_expired: {} filas eliminadas", result.rows_affected());
+    let cutoff = chrono::Utc::now().timestamp_millis() - (SESSION_RETENTION_DAYS * 86400 * 1000);
+    let result = sqlx::query("DELETE FROM sessions WHERE status != 'active' AND created_at < ?")
+        .bind(cutoff)
+        .execute(pool)
+        .await?;
+    tracing::info!(
+        "prune_sessions_expired: {} filas eliminadas",
+        result.rows_affected()
+    );
     Ok(())
 }
 
 async fn prune_idempotency_keys(pool: &SqlitePool) -> anyhow::Result<()> {
-    let cutoff = chrono::Utc::now().timestamp_millis()
-        - (IDEMPOTENCY_RETENTION_DAYS * 86400 * 1000);
+    let cutoff =
+        chrono::Utc::now().timestamp_millis() - (IDEMPOTENCY_RETENTION_DAYS * 86400 * 1000);
     let result = sqlx::query("DELETE FROM idempotency_keys WHERE created_at < ?")
         .bind(cutoff)
         .execute(pool)
         .await?;
-    tracing::info!("prune_idempotency_keys: {} filas eliminadas", result.rows_affected());
+    tracing::info!(
+        "prune_idempotency_keys: {} filas eliminadas",
+        result.rows_affected()
+    );
     Ok(())
 }

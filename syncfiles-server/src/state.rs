@@ -1,10 +1,10 @@
-use std::str::FromStr;
-use std::sync::Arc;
-use sqlx::SqlitePool;
-use sqlx::sqlite::SqliteConnectOptions;
 use crate::config::Config;
 use crate::db;
-use crate::storage::{StorageProvider, LocalDiskStorageProvider};
+use crate::storage::{LocalDiskStorageProvider, StorageProvider};
+use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::SqlitePool;
+use std::str::FromStr;
+use std::sync::Arc;
 
 pub struct AppState {
     pub pool: SqlitePool,
@@ -77,6 +77,8 @@ impl AppState {
     }
 
     pub fn next_server_seq(&self) -> i64 {
-        self.server_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+        self.server_seq
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1
     }
 }

@@ -1,0 +1,94 @@
+name: syncfiles
+
+services:
+  server:
+    image: syncfiles-server:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    profiles: ["default", "prod"]
+    environment:
+      SF_BIND_ADDRESS: "0.0.0.0:8080"
+      SF_MIGRATIONS_DIR: "/app/migrations"
+      SF_STATIC_DIR: "/app/static"
+      SF_DATABASE_URL: "sqlite:/data/db/syncfiles.db"
+      SF_SERVER_URL: "${SF_SERVER_URL:-http://localhost:8080}"
+      SF_STORAGE_ROOT: "/data/storage"
+      SF_MAX_UPLOAD_BYTES: "${SF_MAX_UPLOAD_BYTES:-104857600}"
+      SF_RATE_LIMIT_RPS: "${SF_RATE_LIMIT_RPS:-60}"
+      SF_RATE_LIMIT_BURST: "${SF_RATE_LIMIT_BURST:-120}"
+      BACKUP_DIR: "/data/backups"
+      SF_BACKUP_LOG: "/data/backup.log"
+      SF_ADMIN_TOKEN: "${SF_ADMIN_TOKEN:-}"
+      SF_USER_0_EMAIL: "${SF_USER_0_EMAIL:-admin@syncfiles.local}"
+      SF_USER_0_PASSWORD: "${SF_USER_0_PASSWORD:-syncfiles}"
+      SF_USER_0_ID: "${SF_USER_0_ID:-user-001}"
+      RUST_LOG: "${RUST_LOG:-info}"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - sf-data:/data
+    ports:
+      - "${SF_HOST_PORT:-8080}:8080"
+
+  backup:
+    image: syncfiles-server:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    profiles: ["default"]
+    entrypoint: ["/bin/bash", "/scripts/backup.sh"]
+    environment:
+      SF_DATABASE_URL: "sqlite:/data/db/syncfiles.db"
+      SF_STORAGE_ROOT: "/data/storage"
+      BACKUP_DIR: "/data/backups"
+      SF_BACKUP_LOG: "/data/backup.log"
+    depends_on:
+      server:
+        condition: service_healthy
+    volumes:
+      - sf-data:/data
+    restart: "no"
+
+  backup-cron:
+    image: syncfiles-server:local
+    init: true
+    profiles: ["cron"]
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        while true; do
+          /scripts/backup.sh || true
+          sleep 86400
+        done
+    environment:
+      SF_DATABASE_URL: "sqlite:/data/db/syncfiles.db"
+      SF_STORAGE_ROOT: "/data/storage"
+      BACKUP_DIR: "/data/backups"
+      SF_BACKUP_LOG: "/data/backup.log"
+    depends_on:
+      server:
+        condition: service_healthy
+    volumes:
+      - sf-data:/data
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    profiles: ["dev"]
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "${SF_ADMINER_PORT:-8081}:8080"
+
+volumes:
+  sf-data:

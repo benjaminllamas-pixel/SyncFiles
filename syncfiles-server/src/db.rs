@@ -1,7 +1,9 @@
+use crate::models::*;
 use anyhow::Result;
 use sqlx::SqlitePool;
-use crate::models::*;
-use syncfiles_models::{User, Session, FileEntry, SyncQueueEntry, Conflict, AuditEntry, ChangeEntry};
+use syncfiles_models::{
+    AuditEntry, ChangeEntry, Conflict, FileEntry, Session, SyncQueueEntry, User,
+};
 
 fn now_ms_local() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -59,7 +61,11 @@ fn conflict_row_to_entry(r: ConflictRow) -> Conflict {
     }
 }
 
-pub async fn get_file_by_id_for_user(pool: &SqlitePool, user_id: &str, file_id: &str) -> Result<Option<FileEntry>> {
+pub async fn get_file_by_id_for_user(
+    pool: &SqlitePool,
+    user_id: &str,
+    file_id: &str,
+) -> Result<Option<FileEntry>> {
     let row = sqlx::query_as::<_, FileEntryRow>(
         "SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at, content FROM files WHERE user_id = ? AND file_id = ?"
     )
@@ -130,7 +136,10 @@ async fn backfill_change_log(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await?;
-    tracing::info!("Backfill change_log: {} entradas creadas desde files", files_count);
+    tracing::info!(
+        "Backfill change_log: {} entradas creadas desde files",
+        files_count
+    );
     Ok(())
 }
 
@@ -196,23 +205,36 @@ pub async fn get_changes_since(
         .await?;
     Ok(rows
         .into_iter()
-        .map(|(seq, file_id, operation, path_hash, checksum, relative_path, old_path, device_id, size_bytes, modified_at)| {
-            (
+        .map(
+            |(
                 seq,
-                ChangeEntry {
-                    file_id,
-                    operation,
-                    path_hash,
-                    checksum,
-                    modified_at,
-                    device_id,
-                    relative_path,
-                    old_path,
-                    content: None,
-                    size_bytes,
-                },
-            )
-        })
+                file_id,
+                operation,
+                path_hash,
+                checksum,
+                relative_path,
+                old_path,
+                device_id,
+                size_bytes,
+                modified_at,
+            )| {
+                (
+                    seq,
+                    ChangeEntry {
+                        file_id,
+                        operation,
+                        path_hash,
+                        checksum,
+                        modified_at,
+                        device_id,
+                        relative_path,
+                        old_path,
+                        content: None,
+                        size_bytes,
+                    },
+                )
+            },
+        )
         .collect())
 }
 
@@ -269,7 +291,12 @@ pub async fn get_user_by_id(pool: &SqlitePool, user_id: &str) -> Result<Option<U
     }))
 }
 
-pub async fn create_user(pool: &SqlitePool, email: &str, password_hash: &str, user_id: &str) -> Result<User> {
+pub async fn create_user(
+    pool: &SqlitePool,
+    email: &str,
+    password_hash: &str,
+    user_id: &str,
+) -> Result<User> {
     let now = now_ms_local();
     let user = User {
         user_id: user_id.to_string(),
@@ -362,7 +389,11 @@ pub async fn upsert_file(pool: &SqlitePool, file: &FileEntry) -> Result<()> {
     Ok(())
 }
 
-pub async fn list_files_for_user(pool: &SqlitePool, user_id: &str, include_deleted: bool) -> Result<Vec<FileEntry>> {
+pub async fn list_files_for_user(
+    pool: &SqlitePool,
+    user_id: &str,
+    include_deleted: bool,
+) -> Result<Vec<FileEntry>> {
     let sql = if include_deleted {
         "SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at, content FROM files WHERE user_id = ? ORDER BY relative_path"
     } else {
@@ -375,7 +406,12 @@ pub async fn list_files_for_user(pool: &SqlitePool, user_id: &str, include_delet
     Ok(rows.into_iter().map(file_row_to_entry).collect())
 }
 
-pub async fn get_queued_ops_for_user(pool: &SqlitePool, user_id: &str, device_id: Option<&str>, limit: i64) -> Result<Vec<SyncQueueEntry>> {
+pub async fn get_queued_ops_for_user(
+    pool: &SqlitePool,
+    user_id: &str,
+    device_id: Option<&str>,
+    limit: i64,
+) -> Result<Vec<SyncQueueEntry>> {
     let rows = if let Some(device_id) = device_id {
         sqlx::query_as::<_, SyncQueueEntryRow>(
             "SELECT queue_id, file_id, user_id, device_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error FROM sync_queue WHERE user_id = ? AND device_id = ? ORDER BY created_at LIMIT ?"
@@ -397,7 +433,12 @@ pub async fn get_queued_ops_for_user(pool: &SqlitePool, user_id: &str, device_id
     Ok(rows.into_iter().map(queue_row_to_entry).collect())
 }
 
-pub async fn get_pending_queued_ops_for_user(pool: &SqlitePool, user_id: &str, device_id: Option<&str>, limit: i64) -> Result<Vec<SyncQueueEntry>> {
+pub async fn get_pending_queued_ops_for_user(
+    pool: &SqlitePool,
+    user_id: &str,
+    device_id: Option<&str>,
+    limit: i64,
+) -> Result<Vec<SyncQueueEntry>> {
     let rows = if let Some(device_id) = device_id {
         sqlx::query_as::<_, SyncQueueEntryRow>(
             "SELECT queue_id, file_id, user_id, device_id, operation, status, attempts, idempotency_key, payload_json, created_at, updated_at, last_error FROM sync_queue WHERE user_id = ? AND device_id = ? AND status IN ('queued', 'retry') ORDER BY created_at LIMIT ?"
@@ -420,16 +461,18 @@ pub async fn get_pending_queued_ops_for_user(pool: &SqlitePool, user_id: &str, d
 }
 
 pub async fn get_queue_total_for_user(pool: &SqlitePool, user_id: &str) -> Result<i64> {
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sync_queue WHERE user_id = ?"
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sync_queue WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
     Ok(total)
 }
 
-pub async fn get_activity_for_user(pool: &SqlitePool, user_id: &str, limit: i64) -> Result<Vec<AuditEntry>> {
+pub async fn get_activity_for_user(
+    pool: &SqlitePool,
+    user_id: &str,
+    limit: i64,
+) -> Result<Vec<AuditEntry>> {
     let rows = sqlx::query_as::<_, AuditEntryRow>(
         "SELECT audit_id, user_id, device_id, event_name, event_type, payload_json, created_at FROM audit_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
     )
@@ -437,28 +480,32 @@ pub async fn get_activity_for_user(pool: &SqlitePool, user_id: &str, limit: i64)
     .bind(limit)
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().map(|r| AuditEntry {
-        audit_id: r.audit_id,
-        user_id: r.user_id,
-        device_id: r.device_id,
-        event_name: r.event_name,
-        event_type: r.event_type,
-        payload_json: r.payload_json,
-        created_at: r.created_at,
-    }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| AuditEntry {
+            audit_id: r.audit_id,
+            user_id: r.user_id,
+            device_id: r.device_id,
+            event_name: r.event_name,
+            event_type: r.event_type,
+            payload_json: r.payload_json,
+            created_at: r.created_at,
+        })
+        .collect())
 }
 
 pub async fn get_activity_total_for_user(pool: &SqlitePool, user_id: &str) -> Result<i64> {
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM audit_log WHERE user_id = ?"
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM audit_log WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
     Ok(total)
 }
 
-pub async fn get_unresolved_conflicts_for_user(pool: &SqlitePool, user_id: &str) -> Result<Vec<Conflict>> {
+pub async fn get_unresolved_conflicts_for_user(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Vec<Conflict>> {
     let rows = sqlx::query_as::<_, ConflictRow>(
         "SELECT conflict_id, file_id, user_id, device_local, device_remote, local_checksum, remote_checksum, conflict_type, strategy, created_at, resolved_at, resolved_by FROM conflicts WHERE user_id = ? AND resolved_at IS NULL ORDER BY created_at DESC"
     )
@@ -468,9 +515,12 @@ pub async fn get_unresolved_conflicts_for_user(pool: &SqlitePool, user_id: &str)
     Ok(rows.into_iter().map(conflict_row_to_entry).collect())
 }
 
-pub async fn get_unresolved_conflict_count_for_user(pool: &SqlitePool, user_id: &str) -> Result<i64> {
+pub async fn get_unresolved_conflict_count_for_user(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<i64> {
     let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM conflicts WHERE user_id = ? AND resolved_at IS NULL"
+        "SELECT COUNT(*) FROM conflicts WHERE user_id = ? AND resolved_at IS NULL",
     )
     .bind(user_id)
     .fetch_one(pool)
@@ -478,7 +528,10 @@ pub async fn get_unresolved_conflict_count_for_user(pool: &SqlitePool, user_id: 
     Ok(total)
 }
 
-pub async fn get_user_devices(pool: &SqlitePool, user_id: &str) -> Result<Vec<(crate::models::DeviceRow, i64)>> {
+pub async fn get_user_devices(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Vec<(crate::models::DeviceRow, i64)>> {
     let rows = sqlx::query_as::<_, crate::models::DeviceRow>(
         "SELECT device_id, user_id, platform, device_name, last_seen_at, created_at FROM devices WHERE user_id = ? ORDER BY last_seen_at DESC"
     )
@@ -501,7 +554,11 @@ pub async fn get_user_devices(pool: &SqlitePool, user_id: &str) -> Result<Vec<(c
 
 /// Revoca todas las sesiones activas de un dispositivo, verificando que el
 /// dispositivo pertenezca al usuario que hace la petición.
-pub async fn revoke_device_sessions(pool: &SqlitePool, user_id: &str, target_device_id: &str) -> Result<u64> {
+pub async fn revoke_device_sessions(
+    pool: &SqlitePool,
+    user_id: &str,
+    target_device_id: &str,
+) -> Result<u64> {
     let device: Option<crate::models::DeviceRow> = sqlx::query_as(
         "SELECT device_id, user_id, platform, device_name, last_seen_at, created_at FROM devices WHERE device_id = ? AND user_id = ?"
     )
@@ -523,19 +580,21 @@ pub async fn revoke_device_sessions(pool: &SqlitePool, user_id: &str, target_dev
     Ok(result.rows_affected())
 }
 
-pub async fn get_storage_stats(pool: &SqlitePool, user_id: &str) -> Result<(i64, i64, Option<i64>)> {
+pub async fn get_storage_stats(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<(i64, i64, Option<i64>)> {
     let row: Option<(i64, Option<i64>)> = sqlx::query_as(
         "SELECT COALESCE(SUM(size_bytes), 0), MAX(modified_at) FROM files WHERE user_id = ? AND status != 'deleted'"
     )
     .bind(user_id)
     .fetch_optional(pool)
     .await?;
-    let file_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM files WHERE user_id = ? AND status != 'deleted'"
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
+    let file_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM files WHERE user_id = ? AND status != 'deleted'")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
     let (used_bytes, last_modified_at) = row.unwrap_or((0, None));
     Ok((used_bytes, file_count, last_modified_at))
 }
@@ -564,7 +623,11 @@ pub async fn get_file_by_id(pool: &SqlitePool, file_id: &str) -> Result<Option<F
     }))
 }
 
-pub async fn get_files_by_path_hash(pool: &SqlitePool, user_id: &str, path_hash: &str) -> Result<Option<FileEntry>> {
+pub async fn get_files_by_path_hash(
+    pool: &SqlitePool,
+    user_id: &str,
+    path_hash: &str,
+) -> Result<Option<FileEntry>> {
     let row = sqlx::query_as::<_, FileEntryRow>(
         "SELECT file_id, user_id, device_id, relative_path, path_hash, checksum, size_bytes, modified_at, synced_at, status, last_sync_version, deleted_at, content FROM files WHERE user_id = ? AND path_hash = ?"
     )
@@ -617,30 +680,40 @@ pub async fn get_queued_ops(pool: &SqlitePool, user_id: &str) -> Result<Vec<Sync
     .bind(user_id)
     .fetch_all(pool)
     .await?;
-    Ok(rows.into_iter().map(|r| SyncQueueEntry {
-        queue_id: r.queue_id,
-        file_id: r.file_id,
-        user_id: r.user_id,
-        device_id: r.device_id,
-        operation: r.operation,
-        status: r.status,
-        attempts: r.attempts,
-        idempotency_key: r.idempotency_key,
-        payload_json: r.payload_json,
-        created_at: r.created_at,
-        updated_at: r.updated_at,
-        last_error: r.last_error,
-    }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| SyncQueueEntry {
+            queue_id: r.queue_id,
+            file_id: r.file_id,
+            user_id: r.user_id,
+            device_id: r.device_id,
+            operation: r.operation,
+            status: r.status,
+            attempts: r.attempts,
+            idempotency_key: r.idempotency_key,
+            payload_json: r.payload_json,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+            last_error: r.last_error,
+        })
+        .collect())
 }
 
-pub async fn update_queue_status(pool: &SqlitePool, queue_id: &str, status: &str, error: Option<&str>) -> Result<()> {
-    sqlx::query("UPDATE sync_queue SET status = ?, updated_at = ?, last_error = ? WHERE queue_id = ?")
-        .bind(status)
-        .bind(now_ms_local())
-        .bind(error)
-        .bind(queue_id)
-        .execute(pool)
-        .await?;
+pub async fn update_queue_status(
+    pool: &SqlitePool,
+    queue_id: &str,
+    status: &str,
+    error: Option<&str>,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE sync_queue SET status = ?, updated_at = ?, last_error = ? WHERE queue_id = ?",
+    )
+    .bind(status)
+    .bind(now_ms_local())
+    .bind(error)
+    .bind(queue_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -648,16 +721,19 @@ pub async fn check_idempotency(pool: &SqlitePool, idempotency_key: &str) -> Resu
     if idempotency_key.is_empty() {
         return Ok(false);
     }
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM idempotency_keys WHERE idempotency_key = ?"
-    )
-    .bind(idempotency_key)
-    .fetch_one(pool)
-    .await?;
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM idempotency_keys WHERE idempotency_key = ?")
+            .bind(idempotency_key)
+            .fetch_one(pool)
+            .await?;
     Ok(count > 0)
 }
 
-pub async fn record_idempotency(pool: &SqlitePool, idempotency_key: &str, session_id: &str) -> Result<()> {
+pub async fn record_idempotency(
+    pool: &SqlitePool,
+    idempotency_key: &str,
+    session_id: &str,
+) -> Result<()> {
     if idempotency_key.is_empty() {
         return Ok(());
     }
@@ -739,7 +815,11 @@ pub async fn get_conflict_by_id(pool: &SqlitePool, conflict_id: &str) -> Result<
     }))
 }
 
-pub async fn resolve_conflict(pool: &SqlitePool, conflict_id: &str, resolved_by: &str) -> Result<()> {
+pub async fn resolve_conflict(
+    pool: &SqlitePool,
+    conflict_id: &str,
+    resolved_by: &str,
+) -> Result<()> {
     sqlx::query("UPDATE conflicts SET resolved_at = ?, resolved_by = ? WHERE conflict_id = ?")
         .bind(now_ms_local())
         .bind(resolved_by)
@@ -767,7 +847,7 @@ pub async fn audit_event(pool: &SqlitePool, event: &AuditEntry) -> Result<()> {
 
 pub async fn get_last_server_seq(pool: &SqlitePool) -> Result<i64> {
     let result = sqlx::query_scalar::<_, String>(
-        "SELECT COALESCE((SELECT value FROM metadata WHERE key = 'last_server_seq'), '0')"
+        "SELECT COALESCE((SELECT value FROM metadata WHERE key = 'last_server_seq'), '0')",
     )
     .fetch_optional(pool)
     .await?
@@ -794,13 +874,15 @@ pub async fn delete_file(pool: &SqlitePool, file_id: &str) -> Result<()> {
 
 pub async fn rename_file(pool: &SqlitePool, file_id: &str, new_relative_path: &str) -> Result<()> {
     let path_hash = syncfiles_models::compute_path_hash(new_relative_path);
-    sqlx::query("UPDATE files SET relative_path = ?, path_hash = ?, modified_at = ? WHERE file_id = ?")
-        .bind(new_relative_path)
-        .bind(path_hash)
-        .bind(now_ms_local())
-        .bind(file_id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE files SET relative_path = ?, path_hash = ?, modified_at = ? WHERE file_id = ?",
+    )
+    .bind(new_relative_path)
+    .bind(path_hash)
+    .bind(now_ms_local())
+    .bind(file_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 #[cfg(test)]
@@ -848,13 +930,57 @@ mod tests {
     async fn append_then_get_changes_since_orders_and_filters_by_device() {
         let pool = test_pool().await;
 
-        let s1 = append_change_log(&pool, "user-1", "f1", "dev-a", "upload", "h1", "a.txt", None, "c1", Some(4), 1).await.unwrap();
-        let s2 = append_change_log(&pool, "user-1", "f1", "dev-a", "rename", "h2", "b.txt", Some("a.txt"), "c1", Some(4), 2).await.unwrap();
-        let _s3 = append_change_log(&pool, "user-1", "f2", "dev-b", "upload", "h3", "c.txt", None, "c2", Some(5), 3).await.unwrap();
+        let s1 = append_change_log(
+            &pool,
+            "user-1",
+            "f1",
+            "dev-a",
+            "upload",
+            "h1",
+            "a.txt",
+            None,
+            "c1",
+            Some(4),
+            1,
+        )
+        .await
+        .unwrap();
+        let s2 = append_change_log(
+            &pool,
+            "user-1",
+            "f1",
+            "dev-a",
+            "rename",
+            "h2",
+            "b.txt",
+            Some("a.txt"),
+            "c1",
+            Some(4),
+            2,
+        )
+        .await
+        .unwrap();
+        let _s3 = append_change_log(
+            &pool,
+            "user-1",
+            "f2",
+            "dev-b",
+            "upload",
+            "h3",
+            "c.txt",
+            None,
+            "c2",
+            Some(5),
+            3,
+        )
+        .await
+        .unwrap();
         assert!(s1 < s2 && s2 < _s3, "AUTOINCREMENT asigna seqs crecientes");
 
         // dev-b pregunta: ve los cambios de dev-a en orden, no los propios
-        let changes = get_changes_since(&pool, "user-1", 0, "dev-b", 500).await.unwrap();
+        let changes = get_changes_since(&pool, "user-1", 0, "dev-b", 500)
+            .await
+            .unwrap();
         assert_eq!(changes.len(), 2);
         assert_eq!(changes[0].1.operation, "upload");
         assert_eq!(changes[0].1.relative_path.as_deref(), Some("a.txt"));
@@ -863,21 +989,29 @@ mod tests {
         assert_eq!(changes[1].1.relative_path.as_deref(), Some("b.txt"));
 
         // dev-a pregunta: solo ve el cambio de dev-b
-        let changes = get_changes_since(&pool, "user-1", 0, "dev-a", 500).await.unwrap();
+        let changes = get_changes_since(&pool, "user-1", 0, "dev-a", 500)
+            .await
+            .unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].1.file_id, "f2");
 
         // Cursor intermedio: no repite lo ya visto
-        let changes = get_changes_since(&pool, "user-1", s1, "dev-b", 500).await.unwrap();
+        let changes = get_changes_since(&pool, "user-1", s1, "dev-b", 500)
+            .await
+            .unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].1.operation, "rename");
 
         // Otro usuario no ve nada
-        let changes = get_changes_since(&pool, "user-2", 0, "dev-b", 500).await.unwrap();
+        let changes = get_changes_since(&pool, "user-2", 0, "dev-b", 500)
+            .await
+            .unwrap();
         assert!(changes.is_empty());
 
         // Limit trunca y el cursor queda en la última devuelta
-        let limited = get_changes_since(&pool, "user-1", 0, "dev-b", 1).await.unwrap();
+        let limited = get_changes_since(&pool, "user-1", 0, "dev-b", 1)
+            .await
+            .unwrap();
         assert_eq!(limited.len(), 1);
         assert_eq!(limited[0].0, s1);
     }
@@ -892,26 +1026,37 @@ mod tests {
         // Esquema sin backfill: ejecutar init_db dos veces con filas en files
         init_db(&pool).await.unwrap(); // esquema
         seed_user_and_device(&pool).await;
-        upsert_file(&pool, &sample_entry("live.txt", "synced")).await.unwrap();
+        upsert_file(&pool, &sample_entry("live.txt", "synced"))
+            .await
+            .unwrap();
         let mut deleted = sample_entry("gone.txt", "deleted");
         deleted.deleted_at = Some(2_000);
         upsert_file(&pool, &deleted).await.unwrap();
 
         init_db(&pool).await.unwrap(); // primera vez → backfill
-        let changes = get_changes_since(&pool, "user-1", 0, "device-otro", 500).await.unwrap();
+        let changes = get_changes_since(&pool, "user-1", 0, "device-otro", 500)
+            .await
+            .unwrap();
         assert_eq!(changes.len(), 2);
         let ops: Vec<&str> = changes.iter().map(|(_, c)| c.operation.as_str()).collect();
         assert!(ops.contains(&"upload"));
         assert!(ops.contains(&"delete"));
         // modified_at del delete usa COALESCE(deleted_at, modified_at)
-        let delete_entry = changes.iter().find(|(_, c)| c.operation == "delete").unwrap();
+        let delete_entry = changes
+            .iter()
+            .find(|(_, c)| c.operation == "delete")
+            .unwrap();
         assert_eq!(delete_entry.1.modified_at, 2_000);
 
         let count_after_first: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM change_log")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         init_db(&pool).await.unwrap(); // segunda vez → no duplica
         let count_after_second: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM change_log")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count_after_first, count_after_second);
     }
 
@@ -921,10 +1066,18 @@ mod tests {
         let entry = sample_entry("docs/viejo.txt", "synced");
         upsert_file(&pool, &entry).await.unwrap();
 
-        rename_file(&pool, &entry.file_id, "docs/nuevo.txt").await.unwrap();
+        rename_file(&pool, &entry.file_id, "docs/nuevo.txt")
+            .await
+            .unwrap();
 
-        let renamed = get_file_by_id(&pool, &entry.file_id).await.unwrap().expect("archivo");
+        let renamed = get_file_by_id(&pool, &entry.file_id)
+            .await
+            .unwrap()
+            .expect("archivo");
         assert_eq!(renamed.relative_path, "docs/nuevo.txt");
-        assert!(renamed.modified_at > entry.modified_at, "rename debe bump de modified_at");
+        assert!(
+            renamed.modified_at > entry.modified_at,
+            "rename debe bump de modified_at"
+        );
     }
 }

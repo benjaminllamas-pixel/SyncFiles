@@ -1,10 +1,11 @@
-use anyhow::Result;
-use crate::models::*;
 use crate::db;
+use crate::models::*;
 use crate::state::AppState;
+use anyhow::Result;
 
 pub async fn login(state: &AppState, req: &LoginRequest) -> Result<LoginResponse> {
-    let user = db::get_user_by_email(&state.pool, &req.email).await?
+    let user = db::get_user_by_email(&state.pool, &req.email)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("Usuario no encontrado"))?;
 
     let valid = bcrypt::verify(&req.password, &user.password_hash)?;
@@ -42,15 +43,19 @@ pub async fn login(state: &AppState, req: &LoginRequest) -> Result<LoginResponse
 
     db::create_session(&state.pool, &session).await?;
 
-    db::audit_event(&state.pool, &AuditEntry {
-        audit_id: uuid_str(),
-        user_id: Some(user.user_id.clone()),
-        device_id: Some(req.device_id.clone()),
-        event_name: "auth.login_success".to_string(),
-        event_type: Some("auth".to_string()),
-        payload_json: None,
-        created_at: now_ms(),
-    }).await?;
+    db::audit_event(
+        &state.pool,
+        &AuditEntry {
+            audit_id: uuid_str(),
+            user_id: Some(user.user_id.clone()),
+            device_id: Some(req.device_id.clone()),
+            event_name: "auth.login_success".to_string(),
+            event_type: Some("auth".to_string()),
+            payload_json: None,
+            created_at: now_ms(),
+        },
+    )
+    .await?;
 
     Ok(LoginResponse {
         session_id,
@@ -61,7 +66,8 @@ pub async fn login(state: &AppState, req: &LoginRequest) -> Result<LoginResponse
 }
 
 pub async fn validate_session(state: &AppState, token_hash: &str) -> Result<Session> {
-    db::get_active_session(&state.pool, token_hash).await?
+    db::get_active_session(&state.pool, token_hash)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("Sesión inválida o expirada"))
 }
 

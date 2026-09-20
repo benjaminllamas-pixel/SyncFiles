@@ -1,0 +1,11 @@
+* @SyncFiles/maintainers
+
+/.github/ @SyncFiles/maintainers
+/docs/ @SyncFiles/maintainers
+/scripts/ @SyncFiles/maintainers
+/syncfiles-android/ @SyncFiles/maintainers
+/syncfiles-cli/ @SyncFiles/maintainers
+/syncfiles-client/ @SyncFiles/maintainers
+/syncfiles-emacs/ @SyncFiles/maintainers
+/syncfiles-models/ @SyncFiles/maintainers
+/syncfiles-server/ @SyncFiles/maintainers

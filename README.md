@@ -4,7 +4,7 @@
 Sistema multiplataforma de sincronización de archivos con encriptación end-to-end prevista para fases posteriores y respaldo con soporte futuro en servidor NAS.
 
 ## Fase Actual
-**V1 — Prototipo funcional** (sincronización operativa) + hardening completado: tests automatizados (server, client, models), CI/CD (GitHub Actions), health checks, rate limiting, migraciones versionadas y validación E2E.
+**V1 — Release operativa** (sincronización funcional, hardening, backups restaurables, empaquetado multiplataforma, Docker/Compose, LAN, benchmarks reproducibles y documentación de despliegue).
 
 ## Estructura de Documentación
 
@@ -79,13 +79,19 @@ Sistema multiplataforma de sincronización de archivos con encriptación end-to-
 - `46-deployment-clientes.md` - Distribución de aplicaciones cliente
 - `47-ci-cd.md` - Pipelines de integración y despliegue continuo
 - `48-documentacion-usuario.md` - Manuales y guías de usuario
+- `53-recuperacion-backups.md` - Recuperación y restauración de backups
+- `54-servicio-http-externo.md` - Servicio HTTP, systemd, Docker y TLS
+- `55-cli-rapido.md` - Guía rápida del CLI
+- `56-gobernanza-github.md` - Protección de rama y secretos de release
+- `57-despliegue-gcp.md` - Despliegue mínimo en Cloud Run
+- `58-despliegue-aws.md` - Despliegue mínimo en ECS/Fargate
 
 ### Roadmap y Futuro
 - `49-roadmap.md` - Plan de desarrollo por fases
 - `50-funcionalidades-futuras.md` - Features planificadas para versiones posteriores
 
 ## Estado del Proyecto
-🟢 V1 funcional — server + cliente desktop + CLI + Android + web + Emacs, con CI y suite de tests
+🟢 V1 operativa — server + cliente desktop + CLI + Android + web + Emacs, con CI, Docker/Compose, LAN, backups verificables y benchmarks reproducibles
 
 ## Tests y CI
 
@@ -96,14 +102,16 @@ cargo test --manifest-path syncfiles-client/Cargo.toml -- --test-threads=1
 bash scripts/e2e-test.sh              # regresión E2E completa
 bash scripts/e2e-phase5.sh             # escenarios fase 5
 bash scripts/e2e-rename-move-copy.sh   # rename/move/copy (27 checks)
+bash scripts/e2e-backup-restore.sh    # backup -> restore -> checksums
+scripts/benchmark.sh                   # upload/download/diff con p50/p95
 ```
 
-CI en `.github/workflows/ci.yml`: check + test (server/client/cli/models) + clippy en cada push/PR a `main`, más `assembleDebug` Android con artefacto APK.
+CI en `.github/workflows/ci.yml`: check + test + clippy, E2E de backup/restore, benchmark corto, Docker/Compose y Android debug/release. El workflow de tags firma, verifica y publica artefactos multiplataforma.
 
 ## Próximos Pasos
-1. V2: encriptación end-to-end, soporte NAS, PostgreSQL, Kafka (ver `docs/49-roadmap.md`)
-2. Limpiar deuda de clippy (hoy informativo en CI)
-3. Load testing y containerización (Docker)
+1. V2: multiusuario/RBAC, E2E por archivo, TOTP y `/api/v2` (ver `docs/49-roadmap.md`)
+2. Migrar SQLite a PostgreSQL con migración verificable
+3. Enterprise/HA en V3 con Kubernetes, PostgreSQL externo y storage replicado
 
 ## Instalación
 

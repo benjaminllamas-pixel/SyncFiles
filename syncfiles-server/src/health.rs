@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use actix_web::{get, web, HttpRequest, HttpResponse, HttpMessage, Result as ActixResult};
+use actix_web::{get, web, HttpMessage, HttpRequest, HttpResponse, Result as ActixResult};
 
 use crate::state::AppState;
 
@@ -40,7 +40,11 @@ pub async fn readiness(
         .map(|v| v != "0" && v.to_lowercase() != "false")
         .unwrap_or(true);
     let storage_ok = if write_probe {
-        match state.storage.write("__healthcheck__", "ping.txt", b"ping").await {
+        match state
+            .storage
+            .write("__healthcheck__", "ping.txt", b"ping")
+            .await
+        {
             Ok(()) => {
                 let _ = state.storage.delete("__healthcheck__", "ping.txt").await;
                 true
