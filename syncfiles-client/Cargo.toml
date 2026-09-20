@@ -21,7 +21,7 @@ notify = "6.1"
 sha2 = "0.10"
 dirs = "5"
 eframe = "0.29"
-rfd = "0.15"
+rfd = "0.17"
 syncfiles-models = { path = "../syncfiles-models" }
 base64 = "0.21"
 
