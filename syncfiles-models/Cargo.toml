@@ -8,7 +8,7 @@ description = "Shared models and contracts for SyncFiles"
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-sha2 = "0.10"
+sha2 = "0.11"
 
 [dev-dependencies]
 serde_json = "1"
