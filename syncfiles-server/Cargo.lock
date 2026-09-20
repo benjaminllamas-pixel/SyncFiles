@@ -2488,7 +2488,7 @@ dependencies = [
  "actix-web",
  "anyhow",
  "async-trait",
- "base64 0.21.7",
+ "base64 0.22.1",
  "bcrypt",
  "chrono",
  "dotenvy",
