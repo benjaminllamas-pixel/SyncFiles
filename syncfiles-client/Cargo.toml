@@ -19,7 +19,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 notify = "6.1"
 sha2 = "0.10"
-dirs = "5"
+dirs = "7"
 eframe = "0.29"
 rfd = "0.15"
 syncfiles-models = { path = "../syncfiles-models" }
