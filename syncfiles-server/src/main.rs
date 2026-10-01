@@ -71,6 +71,12 @@ async fn main() -> Result<()> {
 
     tracing::info!("Servidor SyncFiles iniciado en {}", app_config.bind_address);
 
+    // Las rutas efectivas se registran al arrancar: una base de datos o un storage
+    // inesperados han causado pérdidas de datos aparentes al lanzar el servidor desde
+    // otro directorio, así que deben ser visibles en el log desde el primer arranque.
+    tracing::info!("Base de datos: {}", app_config.database_url);
+    tracing::info!("Storage root: {}", app_config.storage_root);
+
     let bind = app_config.bind_address;
     let static_dir = std::env::var("SF_STATIC_DIR")
         .ok()

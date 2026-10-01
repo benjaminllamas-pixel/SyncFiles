@@ -247,10 +247,21 @@ pub async fn upload_handler(
         }
     }
 
-    let file_id = if req.file_id.is_empty() {
-        uuid_str()
-    } else {
+    // El file_id debe ser estable por ruta: `files` tiene UNIQUE(user_id, path_hash),
+    // así que un INSERT OR REPLACE sobre una ruta existente borra la fila anterior. Si
+    // generáramos un id nuevo en cada sobreescritura, las filas viejas de `change_log`
+    // quedarían apuntando a un file_id inexistente y el download de esos cambios
+    // respondería NOT_FOUND, rompiendo el pull de los demás dispositivos.
+    let file_id = if !req.file_id.is_empty() {
         req.file_id.clone()
+    } else if let Some(ref existing_file) = existing {
+        if existing_file.status != "deleted" {
+            existing_file.file_id.clone()
+        } else {
+            uuid_str()
+        }
+    } else {
+        uuid_str()
     };
 
     let content_bytes = match BASE64.decode(&req.content) {
@@ -342,10 +353,32 @@ pub async fn download_handler(
     {
         Ok(Some(f)) => f,
         Ok(None) => {
-            return Ok(bad_request(
-                "NOT_FOUND",
-                "Archivo no encontrado".to_string(),
-            ))
+            // Fallback por path_hash: los cambios históricos de `change_log` pueden apuntar
+            // a un file_id que una sobreescritura posterior reemplazó en `files`. La ruta es
+            // la identidad estable del archivo, así que se resuelve por ella en lugar de
+            // devolver NOT_FOUND y abortar el pull completo del cliente.
+            match Some(req.path_hash.as_str()).filter(|ph| !ph.is_empty()) {
+                Some(ph) => {
+                    match crate::db::get_files_by_path_hash(&state.pool, &session.user_id, ph)
+                        .await
+                    {
+                        Ok(Some(f)) => f,
+                        Ok(None) => {
+                            return Ok(bad_request(
+                                "NOT_FOUND",
+                                "Archivo no encontrado".to_string(),
+                            ))
+                        }
+                        Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
+                    }
+                }
+                None => {
+                    return Ok(bad_request(
+                        "NOT_FOUND",
+                        "Archivo no encontrado".to_string(),
+                    ))
+                }
+            }
         }
         Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
     };

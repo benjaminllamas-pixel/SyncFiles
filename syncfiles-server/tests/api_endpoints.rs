@@ -641,6 +641,87 @@ async fn diff_returns_changes_since_cursor() {
     assert!(resp["changes"].as_array().unwrap().is_empty());
 }
 
+/// Regresión: tras borrar un archivo, el diff no debe devolver el `upload` de esa
+/// misma ruta. El cliente lo intentaba descargar, el storage ya no tenía el
+/// contenido, recibía NOT_FOUND y el pull quedaba atascado en un error permanente.
+#[actix_web::test]
+async fn diff_omits_uploads_for_paths_that_were_deleted() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+    upload(&app, &token, "borrado/a.txt", "contenido").await;
+
+    let token_b = {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .set_json(serde_json::json!({
+                "email": EMAIL, "password": PASSWORD, "device_id": "device-otro",
+            }))
+            .to_request();
+        let resp: Value = test::call_and_read_body_json(&app, req).await;
+        resp["session_id"].as_str().expect("session_id").to_string()
+    };
+
+    let diff_req = test::TestRequest::post()
+        .uri("/api/v1/sync/diff")
+        .insert_header(("Authorization", format!("Bearer {}", token_b)))
+        .set_json(serde_json::json!({
+            "session_id": token_b,
+            "device_id": "device-otro",
+            "since": 0,
+            "request_id": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, diff_req).await;
+    let upload_seq = resp["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["relative_path"] == "borrado/a.txt" && c["operation"] == "upload")
+        .and_then(|c| c["file_id"].as_str())
+        .expect("el upload debe aparecer antes de borrar")
+        .to_string();
+
+    let del_req = test::TestRequest::post()
+        .uri("/api/v1/sync/delete")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": upload_seq,
+            "path_hash": syncfiles_models::compute_path_hash("borrado/a.txt"),
+            "idempotency_key": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, del_req).await;
+    assert_eq!(resp["accepted"], true, "el delete debe aceptarse");
+
+    let diff_req = test::TestRequest::post()
+        .uri("/api/v1/sync/diff")
+        .insert_header(("Authorization", format!("Bearer {}", token_b)))
+        .set_json(serde_json::json!({
+            "session_id": token_b,
+            "device_id": "device-otro",
+            "since": 0,
+            "request_id": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, diff_req).await;
+    let changes = resp["changes"].as_array().unwrap();
+    assert!(
+        !changes
+            .iter()
+            .any(|c| c["relative_path"] == "borrado/a.txt" && c["operation"] == "upload"),
+        "el upload de una ruta borrada no debe reaparecer en el diff: {changes:?}"
+    );
+    assert!(
+        changes
+            .iter()
+            .any(|c| c["relative_path"] == "borrado/a.txt" && c["operation"] == "delete"),
+        "el delete debe seguir llegando para que el cliente borre su copia local"
+    );
+}
+
 #[actix_web::test]
 async fn rename_and_copy_appear_in_diff_for_other_devices() {
     let state = setup().await;
@@ -1024,6 +1105,28 @@ async fn rate_limiter_blocks_excess_requests() {
     // Tras 1s la ventana se renueva (tokens se recargan)
     tokio::time::sleep(Duration::from_millis(1100)).await;
     assert!(limiter.allow(key), "ventana renovada tras 1s");
+}
+
+/// Regresión: una clave que lleva más de `burst / rps` segundos sin usarse debe
+/// tener el bucket lleno, no bloqueado. El cálculo anterior reutilizaba el
+/// `elapsed` previo al reinicio y convertible tokens consumidos en disponibles,
+/// de modo que el dashboard web y la app mobile recibían 429 en la primera
+/// petición tras unos segundos de inactividad.
+#[actix_web::test]
+async fn rate_limiter_allows_first_request_after_long_idle() {
+    use std::time::Duration;
+    use syncfiles_server::middleware::RateLimiter;
+
+    let limiter = syncfiles_server::middleware::InMemoryRateLimiter::new(2, 3);
+    let key = "10.0.0.9";
+
+    assert!(limiter.allow(key), "primera petición");
+    // Inactividad muy superior a burst/rps: el bucket debe estar recargado al máximo.
+    tokio::time::sleep(Duration::from_millis(2100)).await;
+    assert!(limiter.allow(key), "petición tras inactividad larga (1)");
+    assert!(limiter.allow(key), "petición tras inactividad larga (2)");
+    assert!(limiter.allow(key), "petición tras inactividad larga (3)");
+    assert!(!limiter.allow(key), "y solo hasta el burst");
 }
 
 #[actix_web::test]

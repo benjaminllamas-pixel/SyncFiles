@@ -181,6 +181,12 @@ pub async fn append_change_log(
 /// Lee los cambios posteriores al cursor, excluyendo el dispositivo que pregunta.
 /// `since` es un cursor de `seq` (no timestamp). Devuelve (seq, entrada) para
 /// que el diff pueda avanzar el cursor al último seq devuelto.
+///
+/// Se omiten las entradas no-delete de rutas que ya no existen: al borrar un archivo
+/// queda su entrada `delete` en el change_log, pero las entradas `upload` anteriores
+/// de esa misma ruta siguen ahí. Sin este filtro el cliente intentaba descargar
+/// contenido que ya no estaba en storage, recibía NOT_FOUND y el pull se quedaba
+/// atascado en un error que no se resolvía nunca.
 pub async fn get_changes_since(
     pool: &SqlitePool,
     user_id: &str,
@@ -194,6 +200,15 @@ pub async fn get_changes_since(
             "SELECT seq, file_id, operation, path_hash, checksum, relative_path, old_path, device_id, size_bytes, modified_at
              FROM change_log
              WHERE user_id = ? AND seq > ? AND device_id != ?
+               AND (
+                     operation = 'delete'
+                  OR EXISTS (
+                       SELECT 1 FROM files f
+                       WHERE f.user_id = change_log.user_id
+                         AND f.path_hash = change_log.path_hash
+                         AND f.status != 'deleted'
+                     )
+               )
              ORDER BY seq ASC
              LIMIT ?"
         )
@@ -929,6 +944,21 @@ mod tests {
     #[tokio::test]
     async fn append_then_get_changes_since_orders_and_filters_by_device() {
         let pool = test_pool().await;
+
+        // `get_changes_since` solo devuelve entradas no-delete de rutas que existen,
+        // así que el change_log necesita sus correspondientes filas en `files`.
+        seed_user_and_device(&pool).await;
+        for (file_id, path, path_hash) in [
+            ("f1", "a.txt", "h1"),
+            ("f2", "c.txt", "h3"),
+            // Destino del rename de más abajo.
+            ("f3", "b.txt", "h2"),
+        ] {
+            let mut entry = sample_entry(path, "synced");
+            entry.file_id = file_id.to_string();
+            entry.path_hash = path_hash.to_string();
+            upsert_file(&pool, &entry).await.unwrap();
+        }
 
         let s1 = append_change_log(
             &pool,

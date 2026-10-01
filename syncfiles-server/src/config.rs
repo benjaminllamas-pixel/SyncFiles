@@ -3,16 +3,28 @@ use dotenvy::dotenv;
 use std::net::SocketAddr;
 use std::path::Path;
 
+/// Directorio base contra el que se resuelven las rutas relativas de configuración.
+///
+/// Antes se resolvía contra el directorio del binario (`current_exe()`), lo que producía
+/// una base de datos distinta por cada forma de lanzar el servidor (`cargo run`, el binario
+/// en `target/debug`, el release, Docker) y hacía que los archivos "desaparecieran".
+/// Ahora se resuelve contra el directorio de trabajo, que es el comportamiento estándar y
+/// estable; las rutas absolutas en `SF_DATABASE_URL` / `SF_STORAGE_ROOT` se respetan tal cual.
+fn base_dir() -> std::path::PathBuf {
+    std::env::current_dir().unwrap_or_else(|_| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_default()
+    })
+}
+
 fn resolve_abs(path: &str) -> String {
     let p = Path::new(path);
     if p.is_absolute() {
         return path.to_string();
     }
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    exe_dir.join(p).to_string_lossy().to_string()
+    base_dir().join(p).to_string_lossy().to_string()
 }
 
 fn resolve_db_url(url: &str) -> String {
@@ -24,11 +36,7 @@ fn resolve_db_url(url: &str) -> String {
         if Path::new(path_part).is_absolute() {
             return url.to_string();
         }
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|e| e.parent().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-        let abs = exe_dir.join(path_part);
+        let abs = base_dir().join(path_part);
         return format!("sqlite:{}", abs.to_string_lossy());
     }
     url.to_string()

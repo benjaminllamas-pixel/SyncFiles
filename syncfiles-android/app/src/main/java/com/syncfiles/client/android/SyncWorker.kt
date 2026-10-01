@@ -62,7 +62,11 @@ class SyncWorker(
 
         // 2) Pull remoto: diff + download de cambios de otros dispositivos
         try {
-            pullRemote(api, session)
+            val failures = pullRemote(api, session)
+            if (failures > 0) {
+                anyFailure = true
+                errors += "$failures cambio(s) remoto(s) no aplicado(s)"
+            }
         } catch (e: Exception) {
             anyFailure = true
             errors += e.message ?: "pull"
@@ -151,21 +155,27 @@ class SyncWorker(
         )
     }
 
-    private suspend fun pullRemote(api: SyncFilesApi, session: StoredSession) {
-        val diff = api.diff(
-            com.syncfiles.client.android.data.api.DiffRequest(
-                since = sessionStore.lastServerSeq,
-                device_id = session.deviceId,
-                session_id = session.sessionId,
-                request_id = ApiClientFactory.newRequestId()
-            )
-        )
-
-        for (change in diff.changes) {
-            if (change.device_id == session.deviceId) continue
+    /**
+     * Aplica un cambio remoto. Aísla el fallo de un único cambio para que no abortar el
+     * resto del pull: un archivo que el servidor ya no puede servir (por ejemplo un
+     * file_id reemplazado por una sobreescritura posterior) no debe impedir sincronizar
+     * el resto del lote.
+     *
+     * @return true si el cambio se aplicó, false si falló.
+     */
+    private suspend fun applyRemoteChange(
+        api: SyncFilesApi,
+        session: StoredSession,
+        change: com.syncfiles.client.android.data.api.ChangeEntry
+    ): Boolean {
+        return try {
             when (change.operation) {
                 "upload" -> {
-                    val relative = change.relative_path ?: continue
+                    val relative = change.relative_path
+                    if (relative == null) {
+                        Log.w(tag, "Cambio upload sin relative_path; se ignora")
+                        return true
+                    }
                     val root = localRoot()
                     val target = File(root, relative)
                     val response = api.download(
@@ -197,7 +207,11 @@ class SyncWorker(
                     )
                 }
                 "delete" -> {
-                    val relative = change.relative_path ?: continue
+                    val relative = change.relative_path
+                    if (relative == null) {
+                        Log.w(tag, "Cambio delete sin relative_path; se ignora")
+                        return true
+                    }
                     val target = File(localRoot(), relative)
                     if (target.exists() && target.delete()) {
                         localStore.deleteByPathHash(change.path_hash)
@@ -205,7 +219,11 @@ class SyncWorker(
                     }
                 }
                 "rename", "move" -> {
-                    val newRelative = change.relative_path ?: continue
+                    val newRelative = change.relative_path
+                    if (newRelative == null) {
+                        Log.w(tag, "Cambio ${change.operation} sin relative_path; se ignora")
+                        return true
+                    }
                     val oldRelative = change.old_path
                     val root = localRoot()
                     val source = oldRelative?.let { File(root, it) }
@@ -238,7 +256,11 @@ class SyncWorker(
                 "copy" -> {
                     // Igual que upload: descargar por file_id/path_hash y
                     // escribir en relative_path (el destino de la copia).
-                    val relative = change.relative_path ?: continue
+                    val relative = change.relative_path
+                    if (relative == null) {
+                        Log.w(tag, "Cambio copy sin relative_path; se ignora")
+                        return true
+                    }
                     val root = localRoot()
                     val target = File(root, relative)
                     val response = api.download(
@@ -268,9 +290,39 @@ class SyncWorker(
                 }
                 else -> Log.i(tag, "Operación remota ignorada: ${change.operation}")
             }
+            true
+        } catch (e: Exception) {
+            Log.w(tag, "No se pudo aplicar el cambio ${change.operation} de ${change.relative_path}: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Trae los cambios remotos y avanza el cursor aunque algún cambio falle.
+     *
+     * @return número de cambios que no se pudieron aplicar (0 = todo sincronizado).
+     */
+    private suspend fun pullRemote(api: SyncFilesApi, session: StoredSession): Int {
+        val diff = api.diff(
+            com.syncfiles.client.android.data.api.DiffRequest(
+                since = sessionStore.lastServerSeq,
+                device_id = session.deviceId,
+                session_id = session.sessionId,
+                request_id = ApiClientFactory.newRequestId()
+            )
+        )
+
+        var failures = 0
+        for (change in diff.changes) {
+            if (change.device_id == session.deviceId) continue
+            if (!applyRemoteChange(api, session, change)) failures++
         }
 
+        // El cursor avanza siempre: si se dejara quieto por un cambio irrecuperable,
+        // el mismo lote fallaría en cada intento y el dispositivo nunca se
+        // volvería a sincronizar.
         sessionStore.lastServerSeq = diff.server_seq
+        return failures
     }
 
     fun localRoot(): File {
