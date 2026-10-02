@@ -129,10 +129,17 @@ class SyncEngine(context: Context) {
                 // recién guardado), su checksum ya coincide con el local y
                 // re-subirlo solo re-atribuye el archivo a este dispositivo
                 // (ping-pong entre dispositivos). Solo sube cambios reales.
-                val file = File(resolveRootFile(), relativePath)
-                if (file.isFile) {
-                    val checksum = com.syncfiles.client.android.data.util.Hashing
-                        .sha256Hex(file.readBytes())
+                //
+                // La lectura va por SAF porque un archivo de la carpeta elegido
+                // que la app no creó da EACCES por ruta cruda, y el error
+                // abortaba el encolado: el archivo se detectaba pero jamás se
+                // subía. Si no se puede leer, se encola igualmente —el worker
+                // vuelve a intentarlo y decide allí— en vez de perder el cambio.
+                val bytes = SyncRootResolver.readBytes(
+                    appContext, sessionStore.getSyncRootUri(), relativePath
+                )
+                if (bytes != null) {
+                    val checksum = com.syncfiles.client.android.data.util.Hashing.sha256Hex(bytes)
                     if (existing != null && existing.checksum == checksum) return
                 }
                 queue.enqueue(

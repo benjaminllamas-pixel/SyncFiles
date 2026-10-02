@@ -75,6 +75,135 @@ object SyncRootResolver {
     }
 
     /**
+     * Lee un archivo dentro de la carpeta de sincronización.
+     *
+     * Se intenta primero por SAF (`ContentResolver`), que es la vía que respeta el
+     * permiso persistido del árbol, y solo después por la ruta real del filesystem.
+     * El orden importa: que el *directorio* sea escribible no implica que la app pueda
+     * leer por ruta los archivos que no creó ella —un archivo creado por el explorador
+     * del sistema o por otra app dentro de la carpeta devuelve EACCES al abrirlo con
+     * [File]—, y como el error abortaba el encolado, esos archivos no se subían nunca.
+     *
+     * @return los bytes, o null si el archivo no existe o no se puede leer.
+     */
+    fun readBytes(context: Context, treeUriString: String?, relativePath: String): ByteArray? {
+        if (relativePath.isBlank()) return null
+
+        if (!treeUriString.isNullOrBlank()) {
+            try {
+                val treeUri = Uri.parse(treeUriString)
+                val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, treeUri)
+                var current = root
+                for (segment in relativePath.split('/').filter { it.isNotEmpty() }) {
+                    current = current?.findFile(segment) ?: run {
+                        Log.w(TAG, "No existe en SAF: $relativePath")
+                        return null
+                    }
+                }
+                val uri = current?.uri
+                if (uri != null) {
+                    return context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Lectura SAF fallida para $relativePath: ${e.message}")
+            }
+        }
+
+        return try {
+            val file = File(resolveRoot(context, treeUriString), relativePath)
+            if (file.isFile) file.readBytes() else null
+        } catch (e: Exception) {
+            Log.w(TAG, "Lectura por ruta fallida para $relativePath: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Si el archivo existe dentro de la carpeta de sincronización, ya sea por SAF
+     * o por la ruta real. Distingue "ya no está" de "está pero no se puede leer":
+     * lo primero cierra la entrada de la cola, lo segundo debe reintentarse.
+     */
+    fun existsInTree(context: Context, treeUriString: String?, relativePath: String): Boolean {
+        if (relativePath.isBlank()) return false
+
+        val onDisk = try {
+            File(resolveRoot(context, treeUriString), relativePath).isFile
+        } catch (e: Exception) {
+            false
+        }
+        if (onDisk) return true
+        if (treeUriString.isNullOrBlank()) return false
+
+        return try {
+            val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, Uri.parse(treeUriString))
+            var current = root
+            for (segment in relativePath.split('/').filter { it.isNotEmpty() }) {
+                current = current?.findFile(segment) ?: return false
+            }
+            current != null
+        } catch (e: Exception) {
+            Log.w(TAG, "Comprobación SAF fallida para $relativePath: ${e.message}")
+            false
+        }
+    }
+
+    /** Archivo encontrado al recorrer la carpeta de sincronización. */
+    data class TreeFile(
+        val relativePath: String,
+        val sizeBytes: Long,
+        val modifiedAt: Long
+    )
+
+    /**
+     * Recorre la carpeta de sincronización y devuelve sus archivos.
+     *
+     * La enumeración tiene que ir por SAF en Android 11+: la app tiene permiso
+     * persistido sobre el árbol, pero `File.listFiles()` sobre la ruta real devuelve
+     * `Permission denied`, así que un barrido con [File] no veía nada y los archivos de
+     * las subcarpetas no se subían nunca. Con la ruta de la carpeta interna de la app
+     * (fallback sin SAF) se usa [File], que sí funciona.
+     */
+    fun listTree(context: Context, treeUriString: String?): List<TreeFile> {
+        if (!treeUriString.isNullOrBlank()) {
+            try {
+                val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, Uri.parse(treeUriString))
+                val out = mutableListOf<TreeFile>()
+                fun walk(doc: androidx.documentfile.provider.DocumentFile, prefix: String) {
+                    for (child in doc.listFiles()) {
+                        val name = child.name ?: continue
+                        val relative = if (prefix.isEmpty()) name else "$prefix/$name"
+                        if (child.isDirectory) {
+                            walk(child, relative)
+                        } else if (child.isFile) {
+                            out.add(TreeFile(relative, child.length(), child.lastModified()))
+                        }
+                    }
+                }
+                walk(root, "")
+                return out
+            } catch (e: Exception) {
+                Log.w(TAG, "Listado SAF fallido, se usa la ruta de archivo: ${e.message}")
+            }
+        }
+
+        val out = mutableListOf<TreeFile>()
+        fun walk(dir: File, prefix: String) {
+            val children = dir.listFiles() ?: return
+            for (child in children) {
+                val name = child.name
+                val relative = if (prefix.isEmpty()) name else "$prefix/$name"
+                if (child.isDirectory) {
+                    walk(child, relative)
+                } else if (child.isFile) {
+                    out.add(TreeFile(relative, child.length(), child.lastModified()))
+                }
+            }
+        }
+        walk(resolveRoot(context, treeUriString), "")
+        return out
+    }
+
+    /**
      * Ruta visible al usuario para la raíz: el nombre de la carpeta bajo
      * el volumen (p.ej. "Personal") o null si la raíz efectiva es la
      * carpeta interna de la app (fallback) — en cuyo caso la UI debería

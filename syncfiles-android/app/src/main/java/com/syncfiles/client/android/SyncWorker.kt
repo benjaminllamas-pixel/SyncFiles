@@ -51,6 +51,14 @@ class SyncWorker(
         var anyFailure = false
         val errors = mutableListOf<String>()
 
+        // 0) Barrido local: encola lo que el watcher no vio (subcarpetas, cambios
+        //    perdidos mientras la app estaba cerrada) antes de procesar la cola.
+        try {
+            enqueueUnsyncedLocalFiles()
+        } catch (e: Exception) {
+            Log.w(tag, "Fallo en el barrido local: ${e.message}")
+        }
+
         // 1) Reprocesar cola pendiente (uploads/deletes encolados por el watcher o la UI)
         try {
             if (!processQueue(api, session)) anyFailure = true
@@ -79,6 +87,51 @@ class SyncWorker(
         )
 
         return if (anyFailure) Result.retry() else Result.success()
+    }
+
+    /**
+     * Encola los archivos locales que aún no se han subido.
+     *
+     * El [FileWatcher] solo observa el primer nivel y no es recursivo, así que los
+     * archivos creados dentro de subcarpetas nunca llegaban a la cola; tampoco se
+     * recogían los cambios perdidos mientras la app estaba cerrada. Este barrido
+     * recursivo cubre ambos casos, y no reencola lo que el propio worker acaba de
+     * descargar porque esos quedan con status "synced".
+     */
+    private fun enqueueUnsyncedLocalFiles() {
+        val treeUri = sessionStore.getSyncRootUri()
+        val known = localStore.listAll().associateBy { it.relativePath }
+        val alreadyQueued = (queue.listByStatus("queued") + queue.listByStatus("retry"))
+            .map { it.relativePath }
+            .toSet()
+
+        for (treeFile in SyncRootResolver.listTree(applicationContext, treeUri)) {
+            val relative = treeFile.relativePath
+            if (relative in alreadyQueued) continue
+            val entry = known[relative]
+            if (entry != null && entry.status == "synced") continue
+
+            val bytes = SyncRootResolver.readBytes(applicationContext, treeUri, relative) ?: continue
+            val fileId = entry?.fileId ?: java.util.UUID.randomUUID().toString()
+            localStore.upsert(
+                LocalFile(
+                    fileId = fileId,
+                    relativePath = relative,
+                    pathHash = Hashing.sha256Hex(relative),
+                    checksum = Hashing.sha256Hex(bytes),
+                    sizeBytes = bytes.size.toLong(),
+                    modifiedAt = treeFile.modifiedAt,
+                    status = "local",
+                    lastSyncVersion = 0
+                )
+            )
+            queue.enqueue(
+                fileId = fileId,
+                relativePath = relative,
+                operation = "upload"
+            )
+            Log.i(tag, "Encolado por barrido: $relative")
+        }
     }
 
     private suspend fun processQueue(api: SyncFilesApi, session: StoredSession): Boolean {
@@ -125,13 +178,18 @@ class SyncWorker(
         session: StoredSession,
         entry: com.syncfiles.client.android.data.local.QueueEntry
     ) {
-        val root = localRoot()
-        val file = File(root, entry.relativePath)
-        if (!file.exists()) {
+        val treeUri = sessionStore.getSyncRootUri()
+        if (!SyncRootResolver.existsInTree(applicationContext, treeUri, entry.relativePath)) {
             queue.markDone(entry.queueId)
             return
         }
-        val content = file.readBytes()
+        // Lectura por SAF: en la carpeta elegida, un archivo que la app no creó
+        // falla con EACCES al abrirlo por ruta, así que la vía raw descartaba
+        // justo los archivos que el usuario acababa de meter en la carpeta.
+        val content = SyncRootResolver.readBytes(applicationContext, treeUri, entry.relativePath)
+            ?: throw IllegalStateException(
+                "No se pudo leer ${entry.relativePath} desde la carpeta de sincronización"
+            )
         val text = Base64.encodeToString(content, Base64.NO_WRAP)
         val response: ApiResponse<Unit> = api.upload(
             UploadRequest(
