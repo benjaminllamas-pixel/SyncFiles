@@ -104,7 +104,16 @@ class SyncWorker(
                 queue.markDone(entry.queueId)
             } catch (e: Exception) {
                 allOk = false
-                queue.markRetry(entry.queueId, e.message ?: "error")
+                val error = e.message ?: "error"
+                // Una entrada que agota los reintentos se descarta en lugar de seguir
+                // envenenando el estado de la sincronización: si no, un solo elemento
+                // irrecuperable deja el dispositivo en error de forma permanente.
+                if (queue.attemptsOf(entry.queueId) + 1 >= SyncQueueStore.MAX_ATTEMPTS) {
+                    queue.markFailed(entry.queueId, error)
+                    Log.w(tag, "Descartada tras ${SyncQueueStore.MAX_ATTEMPTS} intentos: ${entry.relativePath}: $error")
+                } else {
+                    queue.markRetry(entry.queueId, error)
+                }
                 Log.w(tag, "Fallo al procesar ${entry.queueId}: ${e.message}")
             }
         }

@@ -27,6 +27,14 @@ class SyncQueueStore(context: Context) {
 
     companion object {
         private const val TABLE = "sync_queue"
+
+        /**
+         * Intentos máximos antes de descartar una entrada irrecuperable. Sin este tope,
+         * una entrada que nunca podrá aplicarse (por ejemplo una ruta que es un
+         * directorio) se reintentaba en cada sincronización y dejaba el worker siempre en
+         * estado de error, sin dejar sincronizar el resto de los archivos.
+         */
+        const val MAX_ATTEMPTS = 5
     }
 
     fun enqueue(
@@ -89,9 +97,24 @@ class SyncQueueStore(context: Context) {
         updateStatus(queueId, "done", null)
     }
 
-    fun markRetry(queueId: String, error: String) {
-        updateStatus(queueId, "retry", error)
+fun markRetry(queueId: String, error: String) {
+    updateStatus(queueId, "retry", error)
+}
+
+/**
+ * Marca una entrada como fallida definitivamente cuando supera [MAX_ATTEMPTS].
+ */
+fun markFailed(queueId: String, error: String) {
+    updateStatus(queueId, "failed", error)
+}
+
+fun attemptsOf(queueId: String): Int {
+    val sql = "SELECT attempts FROM $TABLE WHERE queue_id = ?"
+    return db.compileStatement(sql).use { stmt ->
+        stmt.bindString(1, queueId)
+        stmt.simpleQueryForLong().toInt()
     }
+}
 
     private fun updateStatus(queueId: String, status: String, error: String?) {
         val sql = "UPDATE $TABLE SET status = ?, attempts = attempts + 1, last_error = ?, updated_at = ? WHERE queue_id = ?"

@@ -56,6 +56,14 @@ class FileWatcher(
                         onEvent(relative, true)
                     }
                     else -> {
+                        // FileObserver emite CREATE también al crear directorios. Encolar un
+                        // directorio como upload hacía que el worker fallara con EISDIR y, sin
+                        // límite de reintentos, dejaba la sincronización en error para siempre.
+                        val target = File(root, relative)
+                        if (target.isDirectory) {
+                            Log.i(TAG, "Evento de directorio ignorado: $relative")
+                            return
+                        }
                         Log.i(TAG, "Evento cambio: $relative")
                         onEvent(relative, false)
                     }
