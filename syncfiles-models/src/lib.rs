@@ -138,14 +138,28 @@ pub struct ChangeEntry {
     pub size_bytes: Option<i64>,
 }
 
+/// Petición de subida de un archivo.
+///
+/// `path_hash` y `checksum` son opcionales a propósito: son valores **derivados**
+/// que el servidor ya calcula por su cuenta (`compute_path_hash` del path normalizado
+/// y SHA-256 de los bytes recibidos), y hasta ahora los comparaba contra lo que
+/// mandaba el cliente para descartar ese valor. Pedirlos no aportaba seguridad, solo
+/// obligaba a cada cliente a calcular SHA-256.
+///
+/// Eso rompía al cliente web: `crypto.subtle` solo existe en contextos seguros, así
+/// que sobre `http://` en una IP de red local el navegador no podía calcular el hash
+/// y toda subida moría antes de salir. Si el campo viene, se sigue validando igual;
+/// si no viene, el servidor usa su propio cálculo.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadRequest {
     pub session_id: String,
     pub device_id: String,
     pub file_id: String,
     pub relative_path: String,
-    pub path_hash: String,
-    pub checksum: String,
+    #[serde(default)]
+    pub path_hash: Option<String>,
+    #[serde(default)]
+    pub checksum: Option<String>,
     pub size_bytes: i64,
     pub modified_at: i64,
     pub idempotency_key: String,
@@ -587,8 +601,8 @@ mod tests {
             device_id: "d1".into(),
             file_id: "f1".into(),
             relative_path: "docs/a.txt".into(),
-            path_hash: compute_path_hash("docs/a.txt"),
-            checksum: compute_checksum(b"hola"),
+            path_hash: Some(compute_path_hash("docs/a.txt")),
+            checksum: Some(compute_checksum(b"hola")),
             size_bytes: 4,
             modified_at: 42,
             idempotency_key: "idem-1".into(),
@@ -602,6 +616,37 @@ mod tests {
         // El JSON usa exactamente los nombres del contrato REST.
         assert!(json.contains("\"relative_path\""));
         assert!(json.contains("\"idempotency_key\""));
+    }
+
+    /// Un cliente que no puede calcular SHA-256 (el navegador fuera de un contexto
+    /// seguro no tiene `crypto.subtle`) omite los hashes; el servidor los deriva.
+    #[test]
+    fn upload_request_accepts_missing_hashes() {
+        let json = r#"{
+            "session_id": "s1",
+            "device_id": "d1",
+            "file_id": "",
+            "relative_path": "file.jpg",
+            "size_bytes": 4,
+            "modified_at": 42,
+            "idempotency_key": "idem-1",
+            "content": "aG9sYQ=="
+        }"#;
+        let req: UploadRequest = serde_json::from_str(json).expect("debe parsear sin hashes");
+        assert_eq!(req.path_hash, None);
+        assert_eq!(req.checksum, None);
+        assert_eq!(req.relative_path, "file.jpg");
+        assert_eq!(req.size_bytes, 4);
+
+        // `null` equivale a ausente.
+        let with_nulls = json.replace(
+            "\"relative_path\": \"file.jpg\",",
+            "\"relative_path\": \"file.jpg\", \"path_hash\": null, \"checksum\": null,",
+        );
+        let req2: UploadRequest =
+            serde_json::from_str(&with_nulls).expect("null debe tratarse como ausente");
+        assert_eq!(req2.path_hash, None);
+        assert_eq!(req2.checksum, None);
     }
 
     #[test]

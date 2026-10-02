@@ -484,8 +484,8 @@ mod tests {
             device_id: "device-test".into(),
             file_id: "file-1".into(),
             relative_path: "docs/a.txt".into(),
-            path_hash: syncfiles_models::compute_path_hash("docs/a.txt"),
-            checksum: syncfiles_models::compute_checksum(b"contenido"),
+            path_hash: Some(syncfiles_models::compute_path_hash("docs/a.txt")),
+            checksum: Some(syncfiles_models::compute_checksum(b"contenido")),
             size_bytes: 9,
             modified_at: 1_700_000_000_000,
             idempotency_key: "idem-1".into(),
@@ -561,7 +561,7 @@ mod tests {
         for content in [b"hola mundo".to_vec(), vec![0u8, 1, 2, 255, 254, 0, 9]] {
             let b64 = base64::engine::general_purpose::STANDARD.encode(&content);
             let mut req = upload_request("sess-1", &b64);
-            req.checksum = syncfiles_models::compute_checksum(&content);
+            req.checksum = Some(syncfiles_models::compute_checksum(&content));
             let resp = client.upload(&req).await.unwrap();
             assert!(resp.accepted);
         }

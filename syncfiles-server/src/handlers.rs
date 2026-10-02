@@ -7,10 +7,10 @@ use tracing::{info, warn};
 
 use crate::auth;
 use crate::models::{
-    compute_path_hash, now_ms, uuid_str, ApiError, ApiResponse, ChangeEntry, Conflict, CopyRequest,
-    DeleteRequest, DiffRequest, DiffResponse, DownloadRequest, DownloadResponse, FileEntry,
-    LoginRequest, MoveRequest, RenameRequest, ResolveConflictRequest, RevokeDeviceRequest, Session,
-    UploadRequest,
+    compute_checksum, compute_path_hash, now_ms, uuid_str, ApiError, ApiResponse, ChangeEntry,
+    Conflict, CopyRequest, DeleteRequest, DiffRequest, DiffResponse, DownloadRequest,
+    DownloadResponse, FileEntry, LoginRequest, MoveRequest, RenameRequest, ResolveConflictRequest,
+    RevokeDeviceRequest, Session, UploadRequest,
 };
 use crate::state::AppState;
 use crate::storage::normalize_relative_path;
@@ -174,17 +174,46 @@ pub async fn upload_handler(
         }
     };
     let expected_path_hash = compute_path_hash(&normalized_relative_path);
-    if req.path_hash != expected_path_hash {
-        return Ok(bad_request(
-            "INVALID_PATH_HASH",
-            "path_hash no coincide con relative_path".to_string(),
-        ));
-    }
+    // El cliente puede omitir los hashes (no todos los entornos pueden calcular
+    // SHA-256: p.ej. `crypto.subtle` no existe fuera de contextos seguros). Si los
+    // manda, se validan igual que antes; si no, el servidor usa su propio cálculo.
+    let path_hash = match req.path_hash.as_deref() {
+        None => expected_path_hash,
+        Some(provided) if provided == expected_path_hash => expected_path_hash,
+        Some(_) => {
+            return Ok(bad_request(
+                "INVALID_PATH_HASH",
+                "path_hash no coincide con relative_path".to_string(),
+            ))
+        }
+    };
+
+    let content_bytes = match BASE64.decode(&req.content) {
+        Ok(b) => b,
+        Err(_) => {
+            return Ok(bad_request(
+                "INVALID_CONTENT",
+                "Content base64 inválido".to_string(),
+            ))
+        }
+    };
+
+    let computed_checksum = compute_checksum(&content_bytes);
+    let checksum = match req.checksum.as_deref() {
+        None => computed_checksum,
+        Some(provided) if provided == computed_checksum => computed_checksum,
+        Some(_) => {
+            return Ok(bad_request(
+                "INVALID_CHECKSUM",
+                "checksum no coincide con el contenido".to_string(),
+            ))
+        }
+    };
 
     let existing: Option<FileEntry> = match crate::db::get_files_by_path_hash(
         &state.pool,
         &session.user_id,
-        &req.path_hash,
+        &path_hash,
     )
     .await
     {
@@ -194,7 +223,7 @@ pub async fn upload_handler(
     };
 
     if let Some(ref existing_file) = existing {
-        if existing_file.checksum != req.checksum && existing_file.status != "deleted" {
+        if existing_file.checksum != checksum && existing_file.status != "deleted" {
             let conflict_id = uuid_str();
             let preserved_path = format!(
                 "{}.conflict_{}_{}",
@@ -218,7 +247,7 @@ pub async fn upload_handler(
                 device_local: Some(existing_file.device_id.clone()),
                 device_remote: Some(req.device_id.clone()),
                 local_checksum: Some(existing_file.checksum.clone()),
-                remote_checksum: Some(req.checksum.clone()),
+                remote_checksum: Some(checksum.clone()),
                 conflict_type: "checksum_mismatch".to_string(),
                 strategy: "last_write_wins".to_string(),
                 created_at: now_ms(),
@@ -264,16 +293,6 @@ pub async fn upload_handler(
         uuid_str()
     };
 
-    let content_bytes = match BASE64.decode(&req.content) {
-        Ok(b) => b,
-        Err(_) => {
-            return Ok(bad_request(
-                "INVALID_CONTENT",
-                "Content base64 inválido".to_string(),
-            ))
-        }
-    };
-
     if let Err(e) = state
         .storage
         .write(&session.user_id, &req.relative_path, &content_bytes)
@@ -287,8 +306,8 @@ pub async fn upload_handler(
         user_id: session.user_id.clone(),
         device_id: req.device_id.clone(),
         relative_path: req.relative_path.clone(),
-        path_hash: req.path_hash.clone(),
-        checksum: req.checksum.clone(),
+        path_hash: path_hash.clone(),
+        checksum: checksum.clone(),
         size_bytes: req.size_bytes,
         modified_at: req.modified_at,
         synced_at: Some(now_ms()),
@@ -308,10 +327,10 @@ pub async fn upload_handler(
         &file_entry.file_id,
         &req.device_id,
         "upload",
-        &req.path_hash,
+        &path_hash,
         &req.relative_path,
         None,
-        &req.checksum,
+        &checksum,
         Some(req.size_bytes),
         req.modified_at,
     )

@@ -452,7 +452,10 @@ async function uploadFiles(fileList) {
 
 async function uploadOne(file) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const checksum = await sha256Hex(bytes);
+  // No se mandan path_hash ni checksum: son valores derivados y el servidor los
+  // calcula. Además no se podría calcular aquí —`crypto.subtle` solo existe en
+  // contextos seguros, así que sobre http:// con una IP de red local el navegador
+  // no tiene con qué hashear y toda subida moría antes de salir.
   await apiJson('/sync/upload', {
     method: 'POST',
     body: JSON.stringify({
@@ -460,8 +463,6 @@ async function uploadOne(file) {
       device_id: store.deviceId,
       file_id: '',
       relative_path: file.name,
-      path_hash: await sha256Hex(new TextEncoder().encode(file.name)),
-      checksum,
       size_bytes: bytes.length,
       modified_at: file.lastModified || Date.now(),
       idempotency_key: randomId('webup'),
@@ -484,15 +485,6 @@ function bytesToBase64(bytes) {
     bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
   }
   return btoa(bin);
-}
-
-function toHex(buffer) {
-  return Array.from(new Uint8Array(buffer), b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function sha256Hex(bytes) {
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return toHex(digest);
 }
 
 function joinPath(dir, name) {

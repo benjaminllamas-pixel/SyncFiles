@@ -131,6 +131,104 @@ fn auth_get(token: &str, uri: &str) -> test::TestRequest {
         .insert_header(("Authorization", format!("Bearer {}", token)))
 }
 
+/// Regresión: un cliente que no puede calcular SHA-256 (el navegador fuera de un
+/// contexto seguro no tiene `crypto.subtle`) omite `path_hash` y `checksum`. El
+/// servidor debe derivarlos y aceptar la subida, en vez de devolver 400.
+#[actix_web::test]
+async fn upload_without_hashes_is_accepted_and_server_derives_them() {
+    let state = setup().await;
+    let app = make_app(state.clone()).await;
+    let token = login(&app).await;
+    let content = "contenido sin hashes del cliente";
+    let path = "sin-hashes/file.txt";
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/upload")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": "",
+            "relative_path": path,
+            "size_bytes": content.len() as i64,
+            "modified_at": syncfiles_models::now_ms(),
+            "idempotency_key": syncfiles_models::uuid_str(),
+            "content": base64::engine::general_purpose::STANDARD.encode(content.as_bytes()),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+    assert_eq!(resp["accepted"], true, "upload sin hashes: {resp}");
+
+    // El servidor guardó los valores derivados, no cadenas vacías.
+    let file = syncfiles_server::db::get_files_by_path_hash(
+        &state.pool,
+        USER_ID,
+        syncfiles_models::compute_path_hash(path).as_str(),
+    )
+    .await
+    .expect("consulta de archivo")
+    .expect("el archivo debe existir con path_hash derivado");
+    assert_eq!(
+        file.checksum,
+        syncfiles_models::compute_checksum(content.as_bytes()),
+        "el checksum debe derivarlo el servidor"
+    );
+    assert_eq!(
+        file.path_hash,
+        syncfiles_models::compute_path_hash(path),
+        "el path_hash debe derivarlo el servidor"
+    );
+
+    // Y el download devuelve el contenido intacto.
+    let dl = test::TestRequest::post()
+        .uri("/api/v1/sync/download")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": file.file_id,
+            "path_hash": file.path_hash,
+            "idempotency_key": syncfiles_models::uuid_str(),
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, dl).await;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(resp["content"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(decoded, content.as_bytes());
+}
+
+/// Mandar los hashes sigue siendo válido y se validan igual que antes: un
+/// checksum que no corresponde al contenido debe rechazarse.
+#[actix_web::test]
+async fn upload_with_wrong_checksum_is_rejected() {
+    let state = setup().await;
+    let app = make_app(state.clone()).await;
+    let token = login(&app).await;
+    let path = "hash-malo/a.txt";
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/upload")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": "",
+            "relative_path": path,
+            "path_hash": syncfiles_models::compute_path_hash(path),
+            "checksum": "0".repeat(64),
+            "size_bytes": 4,
+            "modified_at": syncfiles_models::now_ms(),
+            "idempotency_key": syncfiles_models::uuid_str(),
+            "content": base64::engine::general_purpose::STANDARD.encode("hola"),
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400, "un checksum falso debe rechazarse");
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "INVALID_CHECKSUM");
+}
+
 #[actix_web::test]
 async fn files_list_returns_uploaded_files() {
     let state = setup().await;

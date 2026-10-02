@@ -40,10 +40,19 @@ Devuelve los cambios desde `since` (cursor de `seq` del `change_log`).
 
 ### POST /sync/upload
 Cuerpo: `UploadRequest` (content en base64). Validaciones:
-- `path_hash` debe coincidir con `compute_path_hash(relative_path)`.
+- `path_hash` **opcional**: si viene debe coincidir con `compute_path_hash(relative_path)`; si se omite (o es `null`) el servidor lo calcula.
+- `checksum` **opcional**: si viene debe coincidir con el SHA-256 del contenido; si se omite el servidor lo calcula.
 - Content-Type debe ser `application/json`.
 - Tamaño máximo: 100 MiB (configurable con `SF_MAX_UPLOAD_BYTES`).
-**200:** `accepted: true` · **400:** `INVALID_PATH`, `INVALID_CONTENT`, `INVALID_PATH_HASH`, `CONFLICT` (409)
+
+Los dos hashes son opcionales porque son valores derivados que el servidor calcula
+igual, y no todos los clientes pueden hashear: el navegador solo tiene
+`crypto.subtle` en contextos seguros (`https`, `localhost`, `127.0.0.1`), así que
+sobre `http://` en una IP de red local no podía calcularlos y toda subida fallaba.
+La detección de conflictos no se ve afectada: el servidor compara su checksum
+calculado con el del archivo existente y devuelve 409 igual que antes.
+
+**200:** `accepted: true` · **400:** `INVALID_PATH`, `INVALID_CONTENT`, `INVALID_PATH_HASH`, `INVALID_CHECKSUM`, `CONFLICT` (409)
 
 ### POST /sync/download
 ```json

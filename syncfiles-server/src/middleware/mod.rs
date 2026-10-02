@@ -122,6 +122,19 @@ fn string_field<'a>(
     Ok(value)
 }
 
+/// Igual que [string_field], pero acepta que el campo no esté. `null` cuenta como
+/// ausente: un cliente que no puede calcular el hash puede omitirlo o mandarlo nulo.
+fn optional_string_field<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    key: &str,
+    max_len: usize,
+) -> Result<Option<&'a str>, Violation> {
+    match object.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(_) => string_field(object, key, max_len, false).map(Some),
+    }
+}
+
 fn integer_field(object: &serde_json::Map<String, Value>, key: &str) -> Result<i64, Violation> {
     let value = object.get(key).ok_or_else(|| Violation {
         code: "INVALID_PAYLOAD",
@@ -188,8 +201,13 @@ fn validate_payload_structure(
             string_field(object, "device_id", 256, false)?;
             string_field(object, "file_id", 256, true)?;
             let relative_path = string_field(object, "relative_path", 4096, false)?;
-            let path_hash = string_field(object, "path_hash", 128, false)?;
-            let checksum = string_field(object, "checksum", 128, false)?;
+            // `path_hash` y `checksum` son opcionales: son valores derivados que el
+            // servidor calcula igual. No todos los clientes pueden hashear —el navegador
+            // solo tiene `crypto.subtle` en contextos seguros— y exigirlo rompía las
+            // subidas served over plain HTTP en una IP de red local. Si vienen, se
+            // validan igual de estricto que antes.
+            let path_hash = optional_string_field(object, "path_hash", 128)?;
+            let checksum = optional_string_field(object, "checksum", 128)?;
             let size_bytes = integer_field(object, "size_bytes")?;
             integer_field(object, "modified_at")?;
             let idempotency_key = string_field(object, "idempotency_key", 256, false)?;
@@ -206,19 +224,23 @@ fn validate_payload_structure(
                     message: "relative_path contiene una ruta inválida".to_string(),
                 });
             }
-            if !valid_hex(path_hash)
-                || path_hash != syncfiles_models::compute_path_hash(relative_path)
-            {
-                return Err(Violation {
-                    code: "INVALID_PATH_HASH",
-                    message: "path_hash no coincide con relative_path".to_string(),
-                });
+            if let Some(provided) = path_hash {
+                if !valid_hex(provided)
+                    || provided != syncfiles_models::compute_path_hash(relative_path)
+                {
+                    return Err(Violation {
+                        code: "INVALID_PATH_HASH",
+                        message: "path_hash no coincide con relative_path".to_string(),
+                    });
+                }
             }
-            if !valid_hex(checksum) {
-                return Err(Violation {
-                    code: "INVALID_CHECKSUM",
-                    message: "checksum debe ser SHA-256 hexadecimal".to_string(),
-                });
+            if let Some(provided) = checksum {
+                if !valid_hex(provided) {
+                    return Err(Violation {
+                        code: "INVALID_CHECKSUM",
+                        message: "checksum debe ser SHA-256 hexadecimal".to_string(),
+                    });
+                }
             }
             if size_bytes < 0 || size_bytes as usize > max_upload_bytes {
                 return Err(Violation {
