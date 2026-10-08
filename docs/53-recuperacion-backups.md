@@ -19,6 +19,16 @@ BACKUP_DIR=/var/lib/syncfiles/backups \
 scripts/backup.sh
 ```
 
+### Con subida a Google Drive (opcional)
+
+```bash
+# Activar subida a Google Drive
+BACKUP_GDRIVE_ENABLED=true \
+BACKUP_GDRIVE_REMOTE=gdrive \
+BACKUP_GDRIVE_PATH=SyncFilesBackups \
+scripts/backup.sh
+```
+
 Verificación:
 
 ```bash
@@ -28,6 +38,25 @@ tar -tzf /var/lib/syncfiles/backups/backup_*.tar.gz >/dev/null
 ```
 
 Copie el archive y el `.sha256` a un destino externo. No borre el último backup local hasta verificar la copia externa.
+
+### Descargar backup desde Google Drive (para restauración)
+
+Si el backup está en Google Drive y no localmente:
+
+```bash
+# 1. Configurar rclone (si no está hecho)
+rclone config  # remote: gdrive, type: drive
+
+# 2. Listar backups disponibles
+rclone lsl gdrive:SyncFilesBackups/
+
+# 3. Descargar el backup deseado + checksum
+rclone copy gdrive:SyncFilesBackups/backup_20260920_020000.tar.gz /var/lib/syncfiles/backups/
+rclone copy gdrive:SyncFilesBackups/backup_20260920_020000.tar.gz.sha256 /var/lib/syncfiles/backups/
+
+# 4. Verificar checksum localmente
+sha256sum -c /var/lib/syncfiles/backups/backup_20260920_020000.tar.gz.sha256
+```
 
 ## Restaurar en Linux/systemd
 

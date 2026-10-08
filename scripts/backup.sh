@@ -6,18 +6,45 @@
 # 3. Combina todo en un archive timestamped
 # 4. Rotación: elimina backups > BACKUP_RETENTION_DAYS (default 30)
 # 5. Loguea resultado
+# 6. (Opcional) Sube a Google Drive via rclone
 #
 # Uso:
 #   ./scripts/backup.sh
 #   BACKUP_DIR=/backups BACKUP_RETENTION_DAYS=14 ./scripts/backup.sh
 #
-# Variables de entorno:
-#   SF_DATABASE_URL      (default: sqlite:data/syncfiles.db)
-#   SF_STORAGE_ROOT      (default: data/storage)
-#   BACKUP_DIR           (default: data/backups)
-#   BACKUP_RETENTION_DAYS (default: 30)
-#   SF_BACKUP_LOG        (default: data/backup.log)
-#   SF_ADMIN_TOKEN       (opcional, para validar antes de backup)
+# Variables de entorno (core):
+#   SF_DATABASE_URL         (default: sqlite:data/syncfiles.db)
+#   SF_STORAGE_ROOT         (default: data/storage)
+#   BACKUP_DIR              (default: data/backups)
+#   BACKUP_RETENTION_DAYS   (default: 30)
+#   SF_BACKUP_LOG           (default: data/backup.log)
+#   SF_ADMIN_TOKEN          (opcional, para validar antes de backup)
+#
+# Variables de entorno (Google Drive / rclone) — TODAS OPCIONALES:
+#   BACKUP_GDRIVE_ENABLED   (default: "false" — "true" para activar)
+#   BACKUP_GDRIVE_REMOTE    (default: "gdrive" — nombre del remote rclone configurado)
+#   BACKUP_GDRIVE_PATH      (default: "SyncFilesBackups" — carpeta destino en Drive)
+#   BACKUP_GDRIVE_ARGS      (default: "" — args extra para rclone copy, ej: "--bwlimit 1M")
+#   RCLONE_CONFIG           (opcional — path a rclone.conf si no está en ubicación estándar)
+#
+# Requisitos para Google Drive:
+#   1. Instalar rclone: https://rclone.org/install.sh
+#   2. Configurar remote: rclone config  → name: gdrive, type: drive, scope: drive.file
+#   3. Activar: BACKUP_GDRIVE_ENABLED=true ./scripts/backup.sh
+#
+# Ejemplo completo:
+#   BACKUP_GDRIVE_ENABLED=true \
+#   BACKUP_GDRIVE_REMOTE=gdrive \
+#   BACKUP_GDRIVE_PATH=SyncFilesBackups \
+#   BACKUP_GDRIVE_ARGS="--bwlimit 2M --progress" \
+#   ./scripts/backup.sh
+#
+# Notas:
+#   - El backup LOCAL siempre se ejecuta primero; la subida a Drive es best-effort.
+#   - Si rclone falla, el script NO falla (logea WARN y continúa).
+#   - rclone usa su config estándar (~/.config/rclone/rclone.conf) salvo que
+#     RCLONE_CONFIG apunte a otro archivo.
+#   - Para cifrado: configura un remote 'crypt' sobre gdrive y úsalo como REMOTE.
 
 set -euo pipefail
 
@@ -31,6 +58,13 @@ SF_STORAGE_ROOT="${SF_STORAGE_ROOT:-data/storage}"
 BACKUP_DIR="${BACKUP_DIR:-data/backups}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 SF_BACKUP_LOG="${SF_BACKUP_LOG:-data/backup.log}"
+
+# Google Drive / rclone (opcional)
+BACKUP_GDRIVE_ENABLED="${BACKUP_GDRIVE_ENABLED:-false}"
+BACKUP_GDRIVE_REMOTE="${BACKUP_GDRIVE_REMOTE:-gdrive}"
+BACKUP_GDRIVE_PATH="${BACKUP_GDRIVE_PATH:-SyncFilesBackups}"
+BACKUP_GDRIVE_ARGS="${BACKUP_GDRIVE_ARGS:-}"
+RCLONE_CONFIG="${RCLONE_CONFIG:-}"
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_NAME="backup_${TIMESTAMP}"
@@ -141,6 +175,30 @@ find "$BACKUP_DIR" -name "backup_*.tar.gz" -mtime +"$BACKUP_RETENTION_DAYS" -del
 find "$BACKUP_DIR" -name "backup_*.sha256" -mtime +"$BACKUP_RETENTION_DAYS" -delete 2>/dev/null || true
 find "$BACKUP_DIR" -name "metadata_*.db" -mtime +"$BACKUP_RETENTION_DAYS" -delete 2>/dev/null || true
 find "$BACKUP_DIR" -name "storage_*.tar.gz" -mtime +"$BACKUP_RETENTION_DAYS" -delete 2>/dev/null || true
+
+# --- Paso 6: Subida a Google Drive (opcional) ---
+# Compatibilidad bash 3.2 (macOS): usar tr para lowercase
+_gdrive_enabled="$(printf '%s' "${BACKUP_GDRIVE_ENABLED}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${_gdrive_enabled}" == "true" ]]; then
+    if command -v rclone >/dev/null 2>&1; then
+        log INFO "Subiendo backup a Google Drive (remote: ${BACKUP_GDRIVE_REMOTE}, path: ${BACKUP_GDRIVE_PATH})"
+        RCLONE_CMD=(rclone copy "$BACKUP_PATH" "${BACKUP_GDRIVE_REMOTE}:${BACKUP_GDRIVE_PATH}/")
+        if [[ -n "$RCLONE_CONFIG" ]]; then
+            RCLONE_CMD=(rclone --config "$RCLONE_CONFIG" copy "$BACKUP_PATH" "${BACKUP_GDRIVE_REMOTE}:${BACKUP_GDRIVE_PATH}/")
+        fi
+        if [[ -n "$BACKUP_GDRIVE_ARGS" ]]; then
+            # shellcheck disable=SC2206
+            RCLONE_CMD+=($BACKUP_GDRIVE_ARGS)
+        fi
+        if "${RCLONE_CMD[@]}" 2>&1 | tee -a "$SF_BACKUP_LOG"; then
+            log INFO "Subida a Google Drive completada exitosamente"
+        else
+            log WARN "rclone falló (backup local OK en $BACKUP_PATH). Revisa conectividad y configuración de rclone."
+        fi
+    else
+        log WARN "BACKUP_GDRIVE_ENABLED=true pero rclone no está instalado. Saltando subida. Instala: https://rclone.org/install.sh"
+    fi
+fi
 
 log INFO "Backup completado exitosamente: $BACKUP_PATH"
 log INFO "---"

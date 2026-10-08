@@ -397,6 +397,228 @@ async fn conflicts_returns_unresolved_only() {
 }
 
 #[actix_web::test]
+async fn resolve_conflict_with_existing_file_works() {
+    let state = setup().await;
+    let app = make_app(state.clone()).await;
+    let token = login(&app).await;
+
+    let conflict_id = syncfiles_models::uuid_str();
+    let file_id = syncfiles_models::uuid_str();
+    let path = "test-conflict/file.txt";
+    let path_hash = syncfiles_models::compute_path_hash(path);
+    let checksum = syncfiles_models::compute_checksum(b"local content");
+
+    let file_entry = syncfiles_models::FileEntry {
+        file_id: file_id.clone(),
+        user_id: USER_ID.to_string(),
+        device_id: DEVICE_ID.to_string(),
+        relative_path: path.to_string(),
+        path_hash: path_hash.clone(),
+        checksum: checksum.clone(),
+        size_bytes: 14,
+        modified_at: syncfiles_models::now_ms(),
+        synced_at: Some(syncfiles_models::now_ms()),
+        status: "synced".to_string(),
+        last_sync_version: 0,
+        deleted_at: None,
+        content: None,
+    };
+    syncfiles_server::db::upsert_file(&state.pool, &file_entry)
+        .await
+        .unwrap();
+
+    let conflict = syncfiles_models::Conflict {
+        conflict_id: conflict_id.clone(),
+        file_id: file_id.clone(),
+        user_id: USER_ID.to_string(),
+        device_local: Some(DEVICE_ID.to_string()),
+        device_remote: Some("device-other".to_string()),
+        local_checksum: Some(checksum),
+        remote_checksum: Some("remote_checksum".to_string()),
+        conflict_type: "checksum_mismatch".to_string(),
+        strategy: "last_write_wins".to_string(),
+        created_at: syncfiles_models::now_ms(),
+        resolved_at: None,
+        resolved_by: None,
+    };
+    syncfiles_server::db::mark_conflict(&state.pool, &conflict)
+        .await
+        .unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/conflicts/resolve")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "conflict_id": conflict_id,
+            "decision": "keep_local",
+            "preserve_alternative": false,
+            "new_name": null,
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+
+    assert_eq!(resp["accepted"], true, "resolve conflict: {resp}");
+
+    let resolved = syncfiles_server::db::get_conflict_by_id(&state.pool, &conflict_id)
+        .await
+        .unwrap()
+        .expect("conflict should exist");
+    assert!(resolved.resolved_at.is_some(), "conflict should be marked resolved");
+}
+
+#[actix_web::test]
+async fn resolve_conflict_without_file_marks_resolved() {
+    let state = setup().await;
+    let app = make_app(state.clone()).await;
+    let token = login(&app).await;
+
+    let conflict_id = syncfiles_models::uuid_str();
+    let file_id = syncfiles_models::uuid_str();
+
+    let conflict = syncfiles_models::Conflict {
+        conflict_id: conflict_id.clone(),
+        file_id: file_id.clone(),
+        user_id: USER_ID.to_string(),
+        device_local: Some(DEVICE_ID.to_string()),
+        device_remote: Some("device-other".to_string()),
+        local_checksum: Some("aaa".to_string()),
+        remote_checksum: Some("bbb".to_string()),
+        conflict_type: "checksum_mismatch".to_string(),
+        strategy: "last_write_wins".to_string(),
+        created_at: syncfiles_models::now_ms(),
+        resolved_at: None,
+        resolved_by: None,
+    };
+    syncfiles_server::db::mark_conflict(&state.pool, &conflict)
+        .await
+        .unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/conflicts/resolve")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "conflict_id": conflict_id,
+            "decision": "keep_remote",
+            "preserve_alternative": false,
+            "new_name": null,
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+
+    assert_eq!(resp["accepted"], true, "resolve conflict without file: {resp}");
+
+    let resolved = syncfiles_server::db::get_conflict_by_id(&state.pool, &conflict_id)
+        .await
+        .unwrap()
+        .expect("conflict should exist");
+    assert!(resolved.resolved_at.is_some(), "conflict should be marked resolved even without file");
+}
+
+#[actix_web::test]
+async fn resolve_conflict_rejects_other_user_conflict() {
+    let state = setup().await;
+    let app = make_app(state.clone()).await;
+    let token = login(&app).await;
+
+    let other_user_id = "user-other-001";
+    let other_email = "other@syncfiles.local";
+    let other_password_hash = bcrypt::hash("password", 4).unwrap();
+
+    sqlx::query("INSERT INTO users (user_id, email, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+        .bind(other_user_id)
+        .bind(other_email)
+        .bind(other_password_hash)
+        .bind(syncfiles_models::now_ms())
+        .bind(syncfiles_models::now_ms())
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let conflict_id = syncfiles_models::uuid_str();
+    let conflict = syncfiles_models::Conflict {
+        conflict_id: conflict_id.clone(),
+        file_id: syncfiles_models::uuid_str(),
+        user_id: other_user_id.to_string(),
+        device_local: Some("device-a".to_string()),
+        device_remote: Some("device-b".to_string()),
+        local_checksum: Some("aaa".to_string()),
+        remote_checksum: Some("bbb".to_string()),
+        conflict_type: "checksum_mismatch".to_string(),
+        strategy: "last_write_wins".to_string(),
+        created_at: syncfiles_models::now_ms(),
+        resolved_at: None,
+        resolved_by: None,
+    };
+    syncfiles_server::db::mark_conflict(&state.pool, &conflict)
+        .await
+        .unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/conflicts/resolve")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "conflict_id": conflict_id,
+            "decision": "keep_local",
+            "preserve_alternative": false,
+            "new_name": null,
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+
+    assert_eq!(resp["code"], "NOT_FOUND", "should reject other user's conflict: {resp}");
+}
+
+#[actix_web::test]
+async fn resolve_conflict_idempotent_on_already_resolved() {
+    let state = setup().await;
+    let app = make_app(state.clone()).await;
+    let token = login(&app).await;
+
+    let conflict_id = syncfiles_models::uuid_str();
+    let file_id = syncfiles_models::uuid_str();
+
+    let conflict = syncfiles_models::Conflict {
+        conflict_id: conflict_id.clone(),
+        file_id: file_id.clone(),
+        user_id: USER_ID.to_string(),
+        device_local: Some(DEVICE_ID.to_string()),
+        device_remote: Some("device-other".to_string()),
+        local_checksum: Some("aaa".to_string()),
+        remote_checksum: Some("bbb".to_string()),
+        conflict_type: "checksum_mismatch".to_string(),
+        strategy: "last_write_wins".to_string(),
+        created_at: syncfiles_models::now_ms(),
+        resolved_at: Some(syncfiles_models::now_ms()),
+        resolved_by: Some(USER_ID.to_string()),
+    };
+    syncfiles_server::db::mark_conflict(&state.pool, &conflict)
+        .await
+        .unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/conflicts/resolve")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "conflict_id": conflict_id,
+            "decision": "keep_local",
+            "preserve_alternative": false,
+            "new_name": null,
+        }))
+        .to_request();
+    let resp: Value = test::call_and_read_body_json(&app, req).await;
+
+    assert_eq!(resp["code"], "ALREADY_RESOLVED", "should reject already resolved conflict: {resp}");
+}
+
+#[actix_web::test]
 async fn devices_lists_user_devices_with_sessions() {
     let state = setup().await;
     let app = make_app(state).await;

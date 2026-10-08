@@ -295,15 +295,17 @@ fn validate_payload_structure(
             string_field(object, "decision", 64, false)?;
             boolean_field(object, "preserve_alternative")?;
             if let Some(new_name) = object.get("new_name") {
-                let new_name = new_name.as_str().ok_or_else(|| Violation {
-                    code: "INVALID_PAYLOAD",
-                    message: "new_name debe ser una cadena o null".to_string(),
-                })?;
-                if !new_name.is_empty() && !valid_path(new_name, false) {
-                    return Err(Violation {
-                        code: "INVALID_PATH",
-                        message: "new_name contiene una ruta inválida".to_string(),
-                    });
+                if !new_name.is_null() {
+                    let new_name = new_name.as_str().ok_or_else(|| Violation {
+                        code: "INVALID_PAYLOAD",
+                        message: "new_name debe ser una cadena o null".to_string(),
+                    })?;
+                    if !new_name.is_empty() && !valid_path(new_name, false) {
+                        return Err(Violation {
+                            code: "INVALID_PATH",
+                            message: "new_name contiene una ruta inválida".to_string(),
+                        });
+                    }
                 }
             }
         }

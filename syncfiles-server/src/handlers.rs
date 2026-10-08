@@ -1051,6 +1051,20 @@ pub async fn resolve_conflict_handler(
         Err(e) => return Ok(bad_request("DB_ERROR", e.to_string())),
     };
 
+    if conflict.user_id != session.user_id {
+        return Ok(bad_request(
+            "NOT_FOUND",
+            "Conflicto no encontrado".to_string(),
+        ));
+    }
+
+    if conflict.resolved_at.is_some() {
+        return Ok(bad_request(
+            "ALREADY_RESOLVED",
+            "El conflicto ya ha sido resuelto".to_string(),
+        ));
+    }
+
     let file = crate::db::get_file_by_id_for_user(&state.pool, &session.user_id, &conflict.file_id)
         .await
         .ok()
