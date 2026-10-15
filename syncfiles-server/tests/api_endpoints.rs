@@ -1607,3 +1607,34 @@ async fn health_ready_returns_200_when_db_and_storage_ok() {
     assert_eq!(body["checks"]["database"], "ok");
     assert_eq!(body["checks"]["storage"], "ok");
 }
+
+// Regresión: si el cliente manda un checksum incorrecto, el servidor debe rechazarlo.
+#[actix_web::test]
+async fn upload_with_incorrect_hash_is_rejected() {
+    let state = setup().await;
+    let app = make_app(state).await;
+    let token = login(&app).await;
+    let content = "contenido para validar";
+    let path = "check/file.txt";
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/sync/upload")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "session_id": token,
+            "device_id": DEVICE_ID,
+            "file_id": "",
+            "relative_path": path,
+            "path_hash": syncfiles_models::compute_path_hash(path),
+            "checksum": "0".repeat(64),
+            "size_bytes": content.len() as i64,
+            "modified_at": syncfiles_models::now_ms(),
+            "idempotency_key": syncfiles_models::uuid_str(),
+            "content": base64::engine::general_purpose::STANDARD.encode(content.as_bytes()),
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400, "un checksum falso debe rechazarse");
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "INVALID_CHECKSUM");
+}
